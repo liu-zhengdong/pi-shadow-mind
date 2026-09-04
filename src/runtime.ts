@@ -17,6 +17,7 @@ import { registerManagementTools } from "./management-tools.js";
 import { ShadowRegistry } from "./registry.js";
 import { ReportBatcher, formatReportBatch } from "./report-batcher.js";
 import { createRandom } from "./random.js";
+import { applyAcpCompressionProjection } from "./acp-projection.js";
 import {
   decideFinalResponse,
   decideHeartbeat,
@@ -313,7 +314,10 @@ export class ShadowMindRuntime {
     if (!decision.activated.length) return;
 
     const context = buildSessionContext(
-      ctx.sessionManager.getEntries(),
+      applyAcpCompressionProjection(
+        ctx.sessionManager.getEntries(),
+        ctx.sessionManager.getSessionFile(),
+      ),
       ctx.sessionManager.getLeafId(),
     );
     const availableTools = new Set(
@@ -367,7 +371,10 @@ export class ShadowMindRuntime {
     }
 
     const context = buildSessionContext(
-      ctx.sessionManager.getEntries(),
+      applyAcpCompressionProjection(
+        ctx.sessionManager.getEntries(),
+        ctx.sessionManager.getSessionFile(),
+      ),
       ctx.sessionManager.getLeafId(),
     );
     const availableTools = new Set(
