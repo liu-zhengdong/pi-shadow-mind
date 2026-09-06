@@ -16,6 +16,7 @@ import { EntityStore } from "./entity-store.js";
 import { registerManagementTools } from "./management-tools.js";
 import { ShadowRegistry } from "./registry.js";
 import { ReportBatcher, formatReportBatch } from "./report-batcher.js";
+import { ReportHistory } from "./report-history.js";
 import { createRandom } from "./random.js";
 import {
   decideFinalResponse,
@@ -48,6 +49,7 @@ import {
 } from "./usage.js";
 
 const SESSION_TEARDOWN_TIMEOUT_MS = 1_000;
+const RECENT_STATUS_RUN_LIMIT = 5;
 
 type SessionContext = ReturnType<typeof buildSessionContext>;
 interface ShadowLaunch {
@@ -94,10 +96,15 @@ export class ShadowMindRuntime {
   });
   private readonly recentEvents: RuntimeEvent[] = [];
   private readonly recentRuns: Array<{
+    runId: string;
     shadowName: string;
     completedAt: string;
     result: ShadowRunResult;
   }> = [];
+  private readonly reportHistory = new ReportHistory(
+    () => RECENT_STATUS_RUN_LIMIT,
+  );
+  private reportsVisible = false;
   private readonly batcher: ReportBatcher;
   private readonly sessionLifetime = new SessionLifetime();
   private epoch = 0;
@@ -139,6 +146,8 @@ export class ShadowMindRuntime {
       this.completedWithFinalText = false;
       this.sessionUsage = zeroUsage();
       this.recentRuns.length = 0;
+      this.reportHistory.clear();
+      this.reportsVisible = false;
       await this.configStore.initialize();
       await this.usageStore.initialize();
       this.random = createRandom(this.configStore.current.randomSeed);
@@ -234,6 +243,22 @@ export class ShadowMindRuntime {
           this.setPaused(!this.paused, ctx);
           return;
         }
+        const reportsCommand = command.match(/^reports(?:\s+(.*))?$/);
+        if (reportsCommand) {
+          const reportCommand = reportsCommand[1] ?? "";
+          if (reportCommand === "show") this.reportsVisible = true;
+          else if (reportCommand === "hide") this.reportsVisible = false;
+          else if (reportCommand) {
+            ctx.ui.notify("Usage: /shadow reports", "warning");
+            return;
+          } else this.reportsVisible = !this.reportsVisible;
+          ctx.ui.notify(
+            this.reportsVisible ? "Shadow reports shown" : "Shadow reports hidden",
+            "info",
+          );
+          this.updateStatus(ctx);
+          return;
+        }
         if (command === "status") {
           await this.refresh(ctx);
           ctx.ui.notify(
@@ -243,6 +268,9 @@ export class ShadowMindRuntime {
         } else if (command === "hide") {
           this.panelVisible = false;
           ctx.ui.setWidget("shadow-mind-panel", undefined);
+        } else if (command === "show") {
+          this.panelVisible = true;
+          await this.refresh(ctx);
         } else {
           await this.refresh(ctx);
           this.panelVisible = !this.panelVisible;
@@ -467,11 +495,13 @@ export class ShadowMindRuntime {
     }
     this.sessionUsage = addUsage(this.sessionUsage, result.usage);
     this.recentRuns.push({
+      runId,
       shadowName: shadow.name,
       completedAt: new Date().toISOString(),
       result,
     });
-    if (this.recentRuns.length > 5) this.recentRuns.shift();
+    if (this.recentRuns.length > RECENT_STATUS_RUN_LIMIT)
+      this.recentRuns.shift();
     this.record("run-end", { runId, shadowId: shadow.id, ...result });
     if (this.latestContext && this.sessionLifetime.isActive)
       this.updateStatus(this.latestContext);
@@ -498,7 +528,7 @@ export class ShadowMindRuntime {
       count: current.length,
     });
     const idle = this.latestContext?.isIdle() ?? true;
-    this.sessionLifetime.run(() => {
+    const delivered = this.sessionLifetime.run(() => {
       this.pi.sendMessage(
         {
           customType: "shadow-report",
@@ -514,6 +544,11 @@ export class ShadowMindRuntime {
         { triggerTurn: true, deliverAs: idle ? "followUp" : "steer" },
       );
     });
+    if (delivered) {
+      this.reportHistory.add(current);
+      if (this.latestContext && this.sessionLifetime.isActive)
+        this.updateStatus(this.latestContext);
+    }
   }
 
   private async refresh(ctx: ExtensionContext): Promise<RegistrySnapshot> {
@@ -602,10 +637,20 @@ export class ShadowMindRuntime {
           ? `🐙 Paused · ${usage}${warning}`
           : `🐙 ${this.active.size} · ${usage}${warning}`,
       );
-      if (this.panelVisible)
-        ctx.ui.setWidget("shadow-mind-panel", this.statusLines(), {
-          placement: "aboveEditor",
-        });
+      if (this.panelVisible) {
+        const lines = this.statusLines();
+        if (this.reportsVisible) {
+          ctx.ui.setWidget(
+            "shadow-mind-panel",
+            () => new Text(lines.join("\n"), 1, 0),
+            { placement: "aboveEditor" },
+          );
+        } else {
+          ctx.ui.setWidget("shadow-mind-panel", lines, {
+            placement: "aboveEditor",
+          });
+        }
+      }
     });
   }
 
@@ -624,18 +669,28 @@ export class ShadowMindRuntime {
     const diagnostics = this.usageStore.error
       ? [...this.diagnostics, `usage: ${this.usageStore.error}`]
       : this.diagnostics;
-    return [
+    const header = [
       `🐙 Shadow Mind · ${this.paused ? "paused" : "active"} · running ${this.active.size}/${config.maxParallelShadows}`,
       `heartbeat ${formatNumber(config.heartbeatProbability)} · batch ${config.resultBatchWindowMs}ms · timeout ${config.defaultShadowTimeoutSeconds}s · drain ${config.headlessDrainTimeoutSeconds}s · thinking ${config.defaultThinkingLevel}`,
       `definitions: ${this.shadowCount} valid · ${this.diagnostics.length} invalid`,
       formatUsageDetail("session", this.sessionUsage),
       `usage lifetime · ${formatUsageSummary(this.usageStore.current)}`,
-      ...this.recentRuns
-        .slice(-3)
-        .map(
-          ({ shadowName, completedAt, result }) =>
-            `recent run · ${formatCompletedAt(completedAt)} · ${shadowName} · ${result.reason} · ${formatUsageSummary(result.usage)}`,
-        ),
+    ];
+    const recentRunBlocks = this.recentRuns
+      .slice(-RECENT_STATUS_RUN_LIMIT)
+      .map(({ runId, shadowName, completedAt, result }) => {
+        const lines = [
+          `recent run · ${formatCompletedAt(completedAt)} · ${shadowName} · ${result.reason} · ${formatUsageSummary(result.usage)}`,
+        ];
+        const report = this.reportsVisible
+          ? this.reportHistory.forRun(runId)
+          : undefined;
+        if (report) {
+          lines.push(...report.content.split(/\r?\n/).map((line) => `    ${line}`));
+        }
+        return lines;
+      });
+    const tail = [
       ...diagnostics.map((diagnostic) => `diagnostic: ${diagnostic}`),
       ...this.recentEvents.slice(-5).map((event) => {
         const failed =
@@ -646,8 +701,9 @@ export class ShadowMindRuntime {
           : "";
         return `${new Date(event.at).toLocaleTimeString("en-GB", { hour12: false })} ${event.kind}${detail}`;
       }),
-      "Shortcut: Alt+S toggle · Commands: /shadow toggle | pause | resume | status | hide",
+      "Shortcut: Alt+S toggle · Commands: /shadow toggle | pause | resume | status | hide | reports",
     ];
+    return [header, ...recentRunBlocks, tail].flat();
   }
 }
 

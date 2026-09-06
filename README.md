@@ -97,7 +97,7 @@ On the first session start, the extension creates:
 
 No default Shadow Mind is created. The global runtime timeout defaults to 300 seconds, and individual Shadows may override it with `timeout_seconds`.
 
-Press `Alt+S` to pause or resume Shadow Mind for the current session. The paused footer reads `🐙 Paused` without a redundant zero count. Use `/shadow` to toggle the status panel, `/shadow status` for a summary, or `/shadow toggle`, `/shadow pause`, and `/shadow resume` for command-based control. Management tools can list, create, update, enable, disable, and delete Shadow Minds, as well as read or update the global configuration. Every write requires user confirmation.
+Press `Alt+S` to pause or resume Shadow Mind for the current session. The paused footer reads `🐙 Paused` without a redundant zero count. Use `/shadow` to toggle the status panel, `/shadow status` for a summary, or `/shadow toggle`, `/shadow pause`, and `/shadow resume` for command-based control. Report bodies are hidden by default; use `/shadow reports` to toggle their visibility under the matching recent run in the status panel, or use `/shadow reports show|hide` for explicit control. Management tools can list, create, update, enable, disable, and delete Shadow Minds, as well as read or update the global configuration. Every write requires user confirmation.
 
 ## Using with DSH
 
