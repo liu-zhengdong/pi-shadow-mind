@@ -225,12 +225,12 @@ describe("decideHeartbeat", () => {
 });
 
 describe("decideFinalResponse", () => {
-  it("activates every matching final-response shadow without probability rolls", () => {
+  it("activates final-response shadows without probability rolls or activation-tools filtering", () => {
     const result = decideFinalResponse({
       shadows: [
         shadow("heartbeat"),
-        shadow("final-a", 0, ["final_response"]),
-        shadow("final-b", 0, ["heartbeat", "final_response"]),
+        shadow("final-a", 0, ["final_response"], ["write"]),
+        shadow("final-b", 0, ["heartbeat", "final_response"], ["edit"]),
       ],
       mainModelId: "openai/gpt",
     });

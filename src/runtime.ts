@@ -168,15 +168,9 @@ export class ShadowMindRuntime {
       this.latestContext = ctx;
       const toolResults = event.toolResults ?? [];
       const executedTools = extractToolNames(toolResults);
-      if (
-        !shouldEvaluateHeartbeat(
-          executedTools,
-          this.configStore.current.heartbeatTools,
-        )
-      ) {
+      if (executedTools.size === 0) {
         this.record("heartbeat-skipped", {
-          reason:
-            executedTools.size === 0 ? "no-tool-activity" : "tool-filtered",
+          reason: "no-tool-activity",
           modelCalls: this.modelCalls,
         });
         return;
@@ -285,9 +279,17 @@ export class ShadowMindRuntime {
 
   private async onHeartbeat(
     ctx: ExtensionContext,
-    executedTools?: ReadonlySet<string>,
+    executedTools: ReadonlySet<string>,
   ): Promise<void> {
     const snapshot = await this.refresh(ctx);
+    const config = this.configStore.current;
+    if (!shouldEvaluateHeartbeat(executedTools, config.heartbeatTools)) {
+      this.record("heartbeat-skipped", {
+        reason: "tool-filtered",
+        modelCalls: this.modelCalls,
+      });
+      return;
+    }
     if (this.paused || !ctx.model) {
       this.record("heartbeat-skipped", {
         reason: this.paused ? "paused" : "no-model",
@@ -297,10 +299,10 @@ export class ShadowMindRuntime {
     }
     const fullModelId = `${ctx.model.provider}/${ctx.model.id}`;
     const decision = decideHeartbeat({
-      heartbeatProbability: this.configStore.current.heartbeatProbability,
+      heartbeatProbability: config.heartbeatProbability,
       availableSlots: Math.max(
         0,
-        this.configStore.current.maxParallelShadows - this.active.size,
+        config.maxParallelShadows - this.active.size,
       ),
       shadows: snapshot.shadows,
       activeShadowIds: new Set(
