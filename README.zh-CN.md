@@ -67,7 +67,7 @@ tools: [read, grep]
 
 ## 工作方式
 
-每个 Shadow 可以通过 `trigger` 选择一种或两种激活方式。默认值是 `[heartbeat]`：主 Agent 的一次 `turn_end` 只有在该轮至少完成过一个工具调用时，扩展才进行全局 heartbeat 概率判断，符合条件的 Shadow 再按照各自的 `activation_probability` 独立抽选。纯文本对话轮次不会触发 heartbeat。
+每个 Shadow 可以通过 `trigger` 选择一种或两种激活方式。默认值是 `[heartbeat]`：主 Agent 的一次 `turn_end` 只有在该轮至少完成过一个工具调用时，扩展才进行全局 heartbeat 概率判断，符合条件的 Shadow 再按照各自的 `activation_probability` 独立抽选。纯文本对话轮次不会触发 heartbeat。全局配置 `heartbeat_tools` 限定哪些 Main 工具可以触发心跳判断；单个 Shadow 的 `activation_tools` 限定它自己的 heartbeat 候选资格。两者默认 `[]`（不限制），按工具名精确匹配，命中列表中任意一个即可，例如 `[edit, write]`。每个工具轮次先刷新配置再过滤。这两个过滤项只影响 heartbeat，不影响 `final_response`，也不同于授权 Shadow 自己使用工具的 `tools`。
 
 使用 `trigger: [final_response]` 可以进行完成后审查。它在主 Agent 发出最终文字并完全 settled 后激活，不受 heartbeat 和 `activation_probability` 影响。同一最终回复的全部检查结束后，发现会合并为一次 `shadow-report` follow-up，较慢的同批检查不会介入已经修订的回复。`trigger: [heartbeat, final_response]` 会同时启用两种模式。`max_parallel_shadows` 仍然限制并发数；超出并发槽位的最终回复检查会排队，而不会被跳过。
 

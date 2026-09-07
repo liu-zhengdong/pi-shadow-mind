@@ -16,6 +16,7 @@ describe("Shadow runtime protocol", () => {
       trigger: ["heartbeat"],
       activeForModels: ["*"],
       tools: [],
+      activationTools: [],
       prompt: "Review progress.",
       filePath: "reviewer.md",
     };
@@ -45,6 +46,7 @@ describe("Shadow runtime protocol", () => {
         trigger: ["heartbeat"],
         activeForModels: ["*"],
         tools: [],
+        activationTools: [],
         prompt: "Review progress.",
         filePath: "reviewer.md",
       },

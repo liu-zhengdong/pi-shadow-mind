@@ -19,6 +19,17 @@ export function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => isNonEmptyString(item));
 }
 
+export function cleanStringArray(
+  value: unknown,
+  fallback: string[],
+  name: string,
+): string[] {
+  if (value === undefined) return [...fallback];
+  if (!isStringArray(value))
+    throw new Error(`${name} must be an array of non-empty strings`);
+  return [...new Set(value.map((item) => item.trim()))];
+}
+
 export function isThinkingLevel(value: unknown): value is ThinkingLevel {
   return typeof value === "string" && THINKING_LEVELS.has(value as ThinkingLevel);
 }

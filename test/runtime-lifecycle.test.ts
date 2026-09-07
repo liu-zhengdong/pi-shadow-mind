@@ -42,6 +42,8 @@ interface RuntimeInternals {
   };
   refresh: (ctx: ExtensionContext) => Promise<RegistrySnapshot>;
   registerEvents: () => void;
+  onHeartbeat: (ctx: ExtensionContext, executedTools: ReadonlySet<string>) => Promise<void>;
+  recentEvents: Array<{ kind: string; data?: Record<string, unknown> }>;
   handleRunEnd: (
     runId: string,
     shadow: ShadowDefinition,
@@ -58,6 +60,7 @@ const shadow: ShadowDefinition = {
   trigger: ["heartbeat"],
   activeForModels: [],
   tools: [],
+  activationTools: [],
   prompt: "Review",
   filePath: "review.md",
 };
@@ -263,6 +266,21 @@ describe("ShadowMindRuntime session lifecycle", () => {
     expect(internals.statusLines()).toContain("    line one");
     await commandHandler!("reports", context);
     expect(internals.statusLines()).not.toContain("    line one");
+  });
+
+  it("skips text-only turns and forwards completed tool names for refreshed evaluation", async () => {
+    const { handlers, internals } = createRuntimeHarness();
+    internals.onHeartbeat = vi.fn();
+    internals.registerEvents();
+    const turnEnd = handlers.get("turn_end")!;
+    const context = {} as ExtensionContext;
+
+    await turnEnd({ toolResults: [] }, context);
+    expect(internals.onHeartbeat).not.toHaveBeenCalled();
+    expect(internals.recentEvents.at(-1)?.data?.reason).toBe("no-tool-activity");
+
+    await turnEnd({ toolResults: [{ toolName: "read" }, { toolName: "bash" }, { toolName: "read" }] }, context);
+    expect(internals.onHeartbeat).toHaveBeenCalledExactlyOnceWith(context, new Set(["read", "bash"]));
   });
 });
 

@@ -16,7 +16,25 @@ describe("parseShadowMarkdown", () => {
       trigger: ["heartbeat"],
       activeForModels: ["*"],
       tools: [],
+      activationTools: [],
     });
+  });
+
+  it("parses activation_tools", () => {
+    const shadow = parseShadowMarkdown(
+      "---\nid: write-checker\nactivation_tools: [bash, edit, write]\n---\nReview changes.",
+      "C:/tmp/write-checker.md",
+    );
+    expect(shadow.activationTools).toEqual(["bash", "edit", "write"]);
+  });
+
+  it("rejects invalid activation_tools", () => {
+    expect(() =>
+      parseShadowMarkdown(
+        "---\nid: bad-tools\nactivation_tools: [123]\n---\nReview.",
+        "C:/tmp/bad.md",
+      ),
+    ).toThrow(/activation_tools/);
   });
 
   it("accepts one or multiple activation triggers", () => {

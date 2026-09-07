@@ -32,6 +32,7 @@ const SHADOW_FIELDS = {
   run_with_model: Type.Optional(Type.String()),
   thinking_level: Type.Optional(THINKING),
   timeout_seconds: Type.Optional(Type.Number({ exclusiveMinimum: 0 })),
+  activation_tools: Type.Optional(Type.Array(Type.String())),
   tools: Type.Optional(Type.Array(Type.String())),
   prompt: Type.Optional(Type.String()),
 };
@@ -178,6 +179,7 @@ function configWriteTool(
       heartbeat_probability: Type.Optional(
         Type.Number({ minimum: 0, maximum: 1 }),
       ),
+      heartbeat_tools: Type.Optional(Type.Array(Type.String())),
       max_parallel_shadows: Type.Optional(Type.Integer({ minimum: 1 })),
       default_shadow_timeout_seconds: Type.Optional(
         Type.Number({ exclusiveMinimum: 0 }),
@@ -198,6 +200,7 @@ function configWriteTool(
       const next = parseConfig({
         heartbeat_probability:
           raw.heartbeat_probability ?? current.heartbeatProbability,
+        heartbeat_tools: raw.heartbeat_tools ?? current.heartbeatTools,
         max_parallel_shadows:
           raw.max_parallel_shadows ?? current.maxParallelShadows,
         default_shadow_timeout_seconds:
@@ -269,6 +272,7 @@ function toPatch(raw: Record<string, unknown>) {
     runWithModel: raw.run_with_model as string | undefined,
     thinkingLevel: raw.thinking_level as any,
     timeoutSeconds: raw.timeout_seconds as number | undefined,
+    activationTools: raw.activation_tools as string[] | undefined,
     tools: raw.tools as string[] | undefined,
     prompt: raw.prompt as string | undefined,
   };

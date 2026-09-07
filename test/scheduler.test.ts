@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   decideFinalResponse,
   decideHeartbeat,
+  extractToolNames,
+  matchesActivationTools,
   shouldEvaluateFinalResponse,
   shouldEvaluateHeartbeat,
 } from "../src/scheduler.js";
@@ -11,6 +13,7 @@ const shadow = (
   id: string,
   probability = 1,
   trigger: ShadowDefinition["trigger"] = ["heartbeat"],
+  activationTools: string[] = [],
 ): ShadowDefinition => ({
   id,
   name: id,
@@ -20,6 +23,7 @@ const shadow = (
   trigger,
   activeForModels: ["openai/gpt"],
   tools: [],
+  activationTools,
   prompt: id,
   filePath: `${id}.md`,
 });
@@ -31,6 +35,48 @@ describe("shouldEvaluateHeartbeat", () => {
 
   it("allows turns that completed Main tool work", () => {
     expect(shouldEvaluateHeartbeat([{ toolName: "read" }])).toBe(true);
+  });
+
+  it("respects heartbeatTools filter", () => {
+    expect(
+      shouldEvaluateHeartbeat([{ toolName: "read" }], ["bash", "write"]),
+    ).toBe(false);
+    expect(
+      shouldEvaluateHeartbeat([{ toolName: "bash" }], ["bash", "write"]),
+    ).toBe(true);
+    expect(
+      shouldEvaluateHeartbeat(
+        [{ toolName: "read" }, { toolName: "write" }],
+        ["bash", "write"],
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("extractToolNames", () => {
+  it("extracts and trims valid tool names", () => {
+    const names = extractToolNames([
+      { toolName: "bash" },
+      { toolName: " edit " },
+      null,
+      {},
+      { toolName: "" },
+    ]);
+    expect(names).toEqual(new Set(["bash", "edit"]));
+  });
+});
+
+describe("matchesActivationTools", () => {
+  it("allows all when activationTools is empty", () => {
+    const s = shadow("s");
+    expect(matchesActivationTools(s, ["read"])).toBe(true);
+    expect(matchesActivationTools(s, undefined)).toBe(true);
+  });
+
+  it("requires intersection when activationTools is specified", () => {
+    const s = shadow("s", 1, ["heartbeat"], ["bash", "edit", "write"]);
+    expect(matchesActivationTools(s, ["read"])).toBe(false);
+    expect(matchesActivationTools(s, ["read", "edit"])).toBe(true);
   });
 });
 
@@ -100,15 +146,91 @@ describe("decideHeartbeat", () => {
     expect(result.activated).toEqual([]);
     expect(result.candidates).toEqual([]);
   });
+
+  it("filters shadows by activationTools and records toolFiltered", () => {
+    const writeOnlyShadow = shadow("writer", 1, ["heartbeat"], ["bash", "edit", "write"]);
+    const generalShadow = shadow("general", 1, ["heartbeat"], []);
+
+    // Case 1: Only "read" was called -> writeOnlyShadow is toolFiltered
+    const readTurnResult = decideHeartbeat({
+      heartbeatProbability: 1,
+      availableSlots: 2,
+      shadows: [writeOnlyShadow, generalShadow],
+      activeShadowIds: new Set(),
+      mainModelId: "openai/gpt",
+      executedTools: ["read"],
+      random: () => 0.1,
+    });
+    expect(readTurnResult.toolFiltered).toEqual(["writer"]);
+    expect(readTurnResult.activated.map((a) => a.shadow.id)).toEqual(["general"]);
+
+    // Case 2: "edit" was called -> writeOnlyShadow is activated
+    const editTurnResult = decideHeartbeat({
+      heartbeatProbability: 1,
+      availableSlots: 2,
+      shadows: [writeOnlyShadow, generalShadow],
+      activeShadowIds: new Set(),
+      mainModelId: "openai/gpt",
+      executedTools: ["edit"],
+      random: () => 0.1,
+    });
+    expect(editTurnResult.toolFiltered).toEqual([]);
+    expect(
+      editTurnResult.activated.map((a) => a.shadow.id).sort(),
+    ).toEqual(["general", "writer"]);
+  });
+
+  it("verifies user scenario: default global config + shadow with activation_tools=[bash, edit, write] and p=1", () => {
+    const s = shadow("reviewer", 1, ["heartbeat"], ["bash", "edit", "write"]);
+
+    // Turn with 'read' only: heartbeat rolls 0.1 (< 1/3 hit), but shadow excluded by toolFiltered
+    const readTurn = decideHeartbeat({
+      heartbeatProbability: 1 / 3,
+      availableSlots: 2,
+      shadows: [s],
+      activeShadowIds: new Set(),
+      mainModelId: "openai/gpt",
+      executedTools: ["read"],
+      random: () => 0.1,
+    });
+    expect(readTurn.activated).toHaveLength(0);
+    expect(readTurn.toolFiltered).toEqual(["reviewer"]);
+
+    // Turn with 'bash': heartbeat rolls 0.1 (< 1/3 hit), shadow tool matches, roll 0.2 (< 1 hit) -> activated
+    const rolls = [0.1, 0.2];
+    const bashTurn = decideHeartbeat({
+      heartbeatProbability: 1 / 3,
+      availableSlots: 2,
+      shadows: [s],
+      activeShadowIds: new Set(),
+      mainModelId: "openai/gpt",
+      executedTools: ["bash"],
+      random: () => rolls.shift() ?? 0,
+    });
+    expect(bashTurn.activated).toHaveLength(1);
+    expect(bashTurn.activated[0].shadow.id).toBe("reviewer");
+
+    // Turn with 'bash': heartbeat rolls 0.5 (>= 1/3 miss) -> no activation
+    const bashMissTurn = decideHeartbeat({
+      heartbeatProbability: 1 / 3,
+      availableSlots: 2,
+      shadows: [s],
+      activeShadowIds: new Set(),
+      mainModelId: "openai/gpt",
+      executedTools: ["bash"],
+      random: () => 0.5,
+    });
+    expect(bashMissTurn.activated).toHaveLength(0);
+  });
 });
 
 describe("decideFinalResponse", () => {
-  it("activates every matching final-response shadow without probability rolls", () => {
+  it("activates final-response shadows without probability rolls or activation-tools filtering", () => {
     const result = decideFinalResponse({
       shadows: [
         shadow("heartbeat"),
-        shadow("final-a", 0, ["final_response"]),
-        shadow("final-b", 0, ["heartbeat", "final_response"]),
+        shadow("final-a", 0, ["final_response"], ["write"]),
+        shadow("final-b", 0, ["heartbeat", "final_response"], ["edit"]),
       ],
       mainModelId: "openai/gpt",
     });

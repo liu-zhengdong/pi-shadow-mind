@@ -4,6 +4,7 @@ export const DEFAULT_READ_TOOLS = ["read", "grep", "find", "ls"] as const;
 
 export interface ShadowConfig {
   heartbeatProbability: number;
+  heartbeatTools: string[];
   maxParallelShadows: number;
   defaultShadowTimeoutSeconds: number;
   headlessDrainTimeoutSeconds: number;
@@ -28,6 +29,7 @@ export interface ShadowDefinition {
   thinkingLevel?: ThinkingLevel;
   timeoutSeconds?: number;
   tools: string[];
+  activationTools: string[];
   prompt: string;
   filePath: string;
 }
@@ -75,4 +77,5 @@ export interface ShadowActivationDecision {
 
 export interface HeartbeatDecision extends ShadowActivationDecision {
   heartbeatRoll: number;
+  toolFiltered: string[];
 }

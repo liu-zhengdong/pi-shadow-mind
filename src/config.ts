@@ -2,10 +2,11 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { ShadowConfig } from "./types.js";
-import { inRange, isFiniteNumber, isNonEmptyString, isThinkingLevel } from "./validation.js";
+import { cleanStringArray, inRange, isFiniteNumber, isNonEmptyString, isThinkingLevel } from "./validation.js";
 
 export const DEFAULT_CONFIG: ShadowConfig = {
   heartbeatProbability: 1 / 3,
+  heartbeatTools: [],
   maxParallelShadows: 2,
   defaultShadowTimeoutSeconds: 300,
   headlessDrainTimeoutSeconds: 120,
@@ -19,6 +20,7 @@ export function parseConfig(input: unknown): ShadowConfig {
   }
   const value = input as Record<string, unknown>;
   const probability = numberInRange(value.heartbeat_probability, 0, 1, DEFAULT_CONFIG.heartbeatProbability, "heartbeat_probability");
+  const heartbeatTools = cleanStringArray(value.heartbeat_tools, DEFAULT_CONFIG.heartbeatTools, "heartbeat_tools");
   const parallel = positiveInteger(value.max_parallel_shadows, DEFAULT_CONFIG.maxParallelShadows, "max_parallel_shadows");
   const timeout = positiveNumber(value.default_shadow_timeout_seconds, DEFAULT_CONFIG.defaultShadowTimeoutSeconds, "default_shadow_timeout_seconds");
   const drainTimeout = positiveNumber(value.headless_drain_timeout_seconds, DEFAULT_CONFIG.headlessDrainTimeoutSeconds, "headless_drain_timeout_seconds");
@@ -31,6 +33,7 @@ export function parseConfig(input: unknown): ShadowConfig {
   }
   return {
     heartbeatProbability: probability,
+    heartbeatTools,
     maxParallelShadows: parallel,
     defaultShadowTimeoutSeconds: timeout,
     headlessDrainTimeoutSeconds: drainTimeout,
@@ -44,6 +47,7 @@ export function parseConfig(input: unknown): ShadowConfig {
 export function serializeConfig(config: ShadowConfig): string {
   return `${JSON.stringify({
     heartbeat_probability: config.heartbeatProbability,
+    ...(config.heartbeatTools && config.heartbeatTools.length ? { heartbeat_tools: config.heartbeatTools } : {}),
     max_parallel_shadows: config.maxParallelShadows,
     default_shadow_timeout_seconds: config.defaultShadowTimeoutSeconds,
     headless_drain_timeout_seconds: config.headlessDrainTimeoutSeconds,

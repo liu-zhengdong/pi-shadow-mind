@@ -21,6 +21,17 @@ describe("sanitizeTrajectory", () => {
 });
 
 describe("serializeTrajectory", () => {
+  it("retains native compaction and branch summary payloads", () => {
+    const result = serializeTrajectory([
+      { role: "compactionSummary", summary: "compacted facts", tokensBefore: 100, timestamp: 0 },
+      { role: "branchSummary", summary: "branch facts", fromId: "old", timestamp: 0 },
+      { role: "compactionSummary", content: "legacy content" },
+    ]);
+    expect(result).toContain("SUMMARY: compacted facts");
+    expect(result).toContain("SUMMARY: branch facts");
+    expect(result).toContain("SUMMARY: legacy content");
+  });
+
   it("renders a plain-text transcript and joins tool summaries to their calls", () => {
     const result = serializeTrajectory([
       { role: "user", content: [{ type: "text", text: "Inspect it." }] },

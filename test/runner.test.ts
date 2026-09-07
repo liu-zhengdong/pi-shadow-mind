@@ -208,11 +208,13 @@ function makeRequest(
       trigger: ["heartbeat"],
       activeForModels: ["*"],
       tools: [],
+      activationTools: [],
       prompt: "test",
       filePath: "s.md",
     },
     config: {
       heartbeatProbability: 1 / 3,
+      heartbeatTools: [],
       maxParallelShadows: 2,
       defaultShadowTimeoutSeconds: 60,
       headlessDrainTimeoutSeconds: 120,

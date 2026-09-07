@@ -5,15 +5,34 @@ import type {
   ShadowTrigger,
 } from "./types.js";
 
+export function extractToolNames(toolResults: readonly unknown[]): Set<string> {
+  const names = new Set<string>();
+  for (const item of toolResults) {
+    if (!item || typeof item !== "object") continue;
+    const name = (item as { toolName?: unknown }).toolName;
+    if (typeof name === "string" && name.trim().length > 0) {
+      names.add(name.trim());
+    }
+  }
+  return names;
+}
+
 /**
  * Pure conversation turns do not create useful new evidence for repository-oriented
  * Shadows. Requiring at least one completed Main tool call also prevents a silent
  * Shadow report response from recursively scheduling more Shadows.
  */
 export function shouldEvaluateHeartbeat(
-  toolResults: readonly unknown[],
+  toolsOrResults: readonly unknown[] | ReadonlySet<string>,
+  heartbeatTools?: readonly string[],
 ): boolean {
-  return toolResults.length > 0;
+  const toolNames =
+    toolsOrResults instanceof Set
+      ? toolsOrResults
+      : extractToolNames(toolsOrResults as readonly unknown[]);
+  if (toolNames.size === 0) return false;
+  if (!heartbeatTools || heartbeatTools.length === 0) return true;
+  return heartbeatTools.some((tool) => toolNames.has(tool));
 }
 
 export function shouldEvaluateFinalResponse(
@@ -49,6 +68,7 @@ export function decideHeartbeat(options: {
   activeShadowIds: ReadonlySet<string>;
   mainModelId: string;
   random?: () => number;
+  executedTools?: ReadonlySet<string> | readonly string[];
 }): HeartbeatDecision {
   const random = options.random ?? Math.random;
   const heartbeatRoll = random();
@@ -62,11 +82,13 @@ export function decideHeartbeat(options: {
       candidates: [],
       modelFiltered: [],
       runningExcluded: [],
+      toolFiltered: [],
     };
   }
 
   const modelFiltered: string[] = [];
   const runningExcluded: string[] = [];
+  const toolFiltered: string[] = [];
   const rolls = options.shadows
     .filter((shadow) => {
       if (!shadow.enabled || !hasTrigger(shadow, "heartbeat")) return false;
@@ -76,6 +98,10 @@ export function decideHeartbeat(options: {
       }
       if (!matchesModel(shadow, options.mainModelId)) {
         modelFiltered.push(shadow.id);
+        return false;
+      }
+      if (!matchesActivationTools(shadow, options.executedTools)) {
+        toolFiltered.push(shadow.id);
         return false;
       }
       return true;
@@ -101,6 +127,7 @@ export function decideHeartbeat(options: {
     })),
     modelFiltered,
     runningExcluded,
+    toolFiltered,
   };
 }
 
@@ -140,6 +167,19 @@ export function matchesModel(
     shadow.activeForModels.includes("*") ||
     shadow.activeForModels.includes(fullModelId)
   );
+}
+
+export function matchesActivationTools(
+  shadow: ShadowDefinition,
+  executedTools?: ReadonlySet<string> | readonly string[],
+): boolean {
+  if (shadow.activationTools.length === 0) {
+    return true;
+  }
+  if (!executedTools) return false;
+  const executedSet =
+    executedTools instanceof Set ? executedTools : new Set(executedTools);
+  return shadow.activationTools.some((tool) => executedSet.has(tool));
 }
 
 function hasTrigger(shadow: ShadowDefinition, trigger: ShadowTrigger): boolean {

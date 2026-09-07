@@ -10,6 +10,7 @@ import {
   type ShadowTrigger,
 } from "./types.js";
 import {
+  cleanStringArray,
   inRange,
   isFiniteNumber,
   isNonEmptyString,
@@ -119,7 +120,7 @@ export function parseShadowMarkdown(
       "activation_probability",
     ),
     trigger: triggerArray(value.trigger, ["heartbeat"], "trigger"),
-    activeForModels: stringArray(
+    activeForModels: cleanStringArray(
       value.active_for_models,
       ["*"],
       "active_for_models",
@@ -130,7 +131,12 @@ export function parseShadowMarkdown(
       value.timeout_seconds,
       "timeout_seconds",
     ),
-    tools: stringArray(value.tools, [], "tools"),
+    activationTools: cleanStringArray(
+      value.activation_tools,
+      [],
+      "activation_tools",
+    ),
+    tools: cleanStringArray(value.tools, [], "tools"),
     prompt,
     filePath,
   };
@@ -173,23 +179,13 @@ function optionalPositiveNumber(
     throw new Error(`${name} must be positive`);
   return value;
 }
-function stringArray(
-  value: unknown,
-  fallback: string[],
-  name: string,
-): string[] {
-  if (value === undefined) return [...fallback];
-  if (!isStringArray(value))
-    throw new Error(`${name} must be an array of non-empty strings`);
-  return [...new Set(value.map((item) => item.trim()))];
-}
 function triggerArray(
   value: unknown,
   fallback: ShadowTrigger[],
   name: string,
 ): ShadowTrigger[] {
   const values = typeof value === "string" ? [value] : value;
-  const items = stringArray(values, fallback, name);
+  const items = cleanStringArray(values, fallback, name);
   const allowed = new Set<string>(SHADOW_TRIGGERS);
   const invalid = items.filter((item) => !allowed.has(item));
   if (invalid.length)

@@ -101,13 +101,19 @@ export function serializeShadow(shadow: ShadowDraft): string {
     ...(shadow.timeoutSeconds !== undefined
       ? { timeout_seconds: shadow.timeoutSeconds }
       : {}),
+    ...(shadow.activationTools && shadow.activationTools.length
+      ? { activation_tools: shadow.activationTools }
+      : {}),
     tools: shadow.tools ?? [],
   };
   return `---\n${YAML.stringify(frontmatter).trimEnd()}\n---\n\n${(shadow.prompt ?? "").trim()}\n`;
 }
 
 export function describeShadow(shadow: ShadowDefinition): string {
-  return `${shadow.enabled ? "enabled" : "disabled"} ${shadow.id} (${shadow.name}) p=${shadow.activationProbability} trigger=${shadow.trigger.join(",")} models=${shadow.activeForModels.join(",")} tools=${shadow.tools.join(",") || "default"} file=${basename(shadow.filePath)}`;
+  const actTools = shadow.activationTools.length
+    ? ` act_tools=${shadow.activationTools.join(",")}`
+    : "";
+  return `${shadow.enabled ? "enabled" : "disabled"} ${shadow.id} (${shadow.name}) p=${shadow.activationProbability} trigger=${shadow.trigger.join(",")} models=${shadow.activeForModels.join(",")}${actTools} tools=${shadow.tools.join(",") || "default"} file=${basename(shadow.filePath)}`;
 }
 
 function definedOnly<T extends object>(value: T): Partial<T> {

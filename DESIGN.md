@@ -65,7 +65,7 @@ Shadow 定义统一从全局目录加载：
 
 该目录属于用户数据，不放入插件安装目录，也不随当前项目切换。插件级配置保存在 `config.json`；registry 只扫描目录顶层的 `.md` 文件，不读取 `config.json`，也不递归读取 `logs/`。
 
-`config.json` 保存默认 Shadow 模型、`default_thinking_level`、`heartbeat_probability`、`max_parallel_shadows`、`default_shadow_timeout_seconds`、`headless_drain_timeout_seconds`、`result_batch_window_ms` 和可选的 `random_seed` 等全局调度配置。`default_shadow_model` 省略时，插件使用激活时的当前 Main 模型；用户也可以配置一个固定默认模型。`default_thinking_level` 的内置默认值为 `low`。
+`config.json` 保存默认 Shadow 模型、`default_thinking_level`、`heartbeat_probability`、`heartbeat_tools`、`max_parallel_shadows`、`default_shadow_timeout_seconds`、`headless_drain_timeout_seconds`、`result_batch_window_ms` 和可选的 `random_seed` 等全局调度配置。`default_shadow_model` 省略时，插件使用激活时的当前 Main 模型；用户也可以配置一个固定默认模型。`default_thinking_level` 的内置默认值为 `low`。
 
 每次 heartbeat 判断或 final-response 调度前，插件检查并重新加载发生变化的 `config.json`。纯文本轮次不会进入 heartbeat，但 Main 的最终文字可以触发 final-response 检查。新配置只影响后续调度和新建实例；已经运行的 Shadow 继续使用启动时取得的配置快照。
 
@@ -109,6 +109,7 @@ frontmatter 包含以下运行字段：
 | `debug` | 是否保存完整 Shadow Session 日志；默认 `false` |
 | `activation_probability` | 每次 heartbeat 时独立激活的概率，范围为 `0` 到 `1`；默认 `0.3`，不影响 final_response |
 | `trigger` | 激活方式，可包含 `heartbeat`、`final_response` 或两者；默认 `[heartbeat]` |
+| `activation_tools` | heartbeat 候选工具过滤；该 Main 轮次命中任意指定工具名即可，默认 `[]` 表示不限制；final_response 独立于此过滤 |
 | `active_for_models` | 适用于哪些 Main 模型；`"*"` 表示全部模型，省略时默认 `["*"]` |
 | `run_with_model` | Shadow 自己使用的模型；省略时使用插件默认模型 |
 | `thinking_level` | Shadow 使用的 thinking level；省略时使用插件默认值，再回退到 Main 会话当前生效等级 |
@@ -241,6 +242,8 @@ Main system prompt
 
 这里的“全部历史”以 Main 激活时实际可见的上下文为准。Main 已发生 compaction 时，Shadow 继承压缩后的上下文，不绕过 compaction 读取已被替换的原始消息。
 
+ACP（Active Context Pruning，billion-context-pi）的持久压缩由独立上下文适配器处理：先解析当前分支及原生 compaction，再读取当前会话 `.acp.json` 中的有效压缩块，将可见范围内的覆盖内容替换为摘要。适配范围包含普通消息、自定义消息和单条消息中的部分工具调用，并保留 ACP 的首条用户消息保护。每次激活重新读取状态，以反映后续压缩和解压；无可用状态时沿用 Pi 原生上下文。该适配器的职责是投影持久压缩历史，Main 的其他扩展上下文变换仍由对应扩展负责。
+
 Shadow 直接使用 Main 上下文的完整净化子集。如果某个 Shadow 配置的 `run_with_model` 上下文窗口更小而无法容纳轨迹，则该次激活失败并记录原因，不生成介入消息。
 
 以下内容不进入 Shadow 上下文：
@@ -286,7 +289,7 @@ shell({ command: "npm test" }) · 失败，12 项通过、2 项失败
 
 ### 5.1 Heartbeat
 
-Heartbeat 使用“工具轮次 + 随机概率”作为调度信号。Main model call 完成后，只有该 `turn_end` 至少包含一个已完成的工具调用，才按插件配置 `heartbeat_probability` 独立判断是否产生 heartbeat。默认值为 `1/3`：
+Heartbeat 使用“工具轮次 + 工具过滤 + 随机概率”作为调度信号。Main model call 完成后，该 `turn_end` 至少包含一个已完成的工具调用时，先刷新配置和 registry，再按同一份配置判断 `heartbeat_tools` 与 `heartbeat_probability`。`heartbeat_tools` 默认 `[]`，表示任意工具；非空时，该轮命中列表中任意一个精确工具名即可参与概率抽选。未通过工具过滤的轮次记录 `tool-filtered` 并跳过随机抽样。默认概率为 `1/3`：
 
 ```text
 P(heartbeat after eligible tool-bearing turn) = heartbeat_probability
@@ -306,9 +309,10 @@ heartbeat 发生时：
 1. 读取当前 Main 模型。
 2. 筛选 `enabled: true` 且 `active_for_models` 匹配的 Shadow。
 3. 排除当前正在运行的同一 Shadow。
-4. 每个剩余 Shadow 按自己的 `activation_probability` 独立判断是否激活。
-5. 如果命中项超过 `max_parallel_shadows`，从中随机选择允许的数量。
-6. 并行创建运行实例并传入各自的净化轨迹。
+4. 根据各 Shadow 的 `activation_tools` 筛选候选：默认 `[]` 不限制，非空时要求该轮命中任意指定工具名；未匹配项记录在 `toolFiltered`。
+5. 每个剩余 Shadow 按自己的 `activation_probability` 独立判断是否激活。
+6. 如果命中项超过 `max_parallel_shadows`，从中随机选择允许的数量。
+7. 并行创建运行实例并传入各自的净化轨迹。
 
 一次 heartbeat 可能不激活任何 Shadow，也可能激活一个或多个。一次 heartbeat 不等待 Shadow 完成，Main 继续工作。
 
@@ -322,7 +326,7 @@ available_slots = max_parallel_shadows - running_shadow_count
 
 命中数量超过剩余槽位时，未被随机选中的 Shadow 直接跳过，不进入等待队列，也不保留本次轨迹快照。后续 heartbeat 会基于届时的最新上下文重新判断。
 
-`activation_probability` 表示 heartbeat 已经发生之后，该 Shadow 被选中的基础概率。因此某个 Shadow 在单次符合条件的 Main 工具轮次后获得激活机会的基础概率为：
+`activation_probability` 表示 heartbeat 已经发生之后，该 Shadow 被选中的基础概率。因此某个 Shadow 在单次通过全局与自身工具过滤的 Main 工具轮次后获得激活机会的基础概率为：
 
 ```text
 P(activation) = heartbeat_probability × activation_probability
@@ -336,7 +340,7 @@ Main 在会话中切换模型后，后续 heartbeat 直接依据新模型重新�
 
 ### 5.2 Final response
 
-配置了 `final_response` 的 Shadow 在 Main 发出非空最终文字，并进入 `agent_settled` 状态后参与调度。该模式仍应用 `enabled` 和 `active_for_models`，但绕过 `heartbeat_probability` 与 `activation_probability`，所有匹配项都必须获得一次运行机会。
+配置了 `final_response` 的 Shadow 在 Main 发出非空最终文字，并进入 `agent_settled` 状态后参与调度。该模式仍应用 `enabled` 和 `active_for_models`，其候选资格独立于 `heartbeat_tools`、`activation_tools`、`heartbeat_probability` 与 `activation_probability`，所有匹配项都必须获得一次运行机会。
 
 最终回复检查使用当时的完整净化轨迹快照。`max_parallel_shadows` 仍是硬并发上限；没有空闲槽位或同一 Shadow 正在运行时，检查进入专用队列，槽位释放后继续执行。旧 epoch 的运行释放槽位时同样继续泵送当前队列，避免跨 epoch 的异步收尾把检查永久卡住。
 
