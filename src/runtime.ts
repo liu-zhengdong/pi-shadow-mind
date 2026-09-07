@@ -252,13 +252,15 @@ export class ShadowMindRuntime {
       },
     });
 
-    this.pi.registerShortcut("alt+s", {
-      description: "Pause or resume Shadow Mind",
-      handler: (ctx) => {
-        this.latestContext = ctx;
-        this.setPaused(!this.paused, ctx);
-      },
-    });
+    for (const shortcut of ["f6", "alt+s"] as const) {
+      this.pi.registerShortcut(shortcut, {
+        description: "Pause or resume Shadow Mind",
+        handler: (ctx) => {
+          this.latestContext = ctx;
+          this.setPaused(!this.paused, ctx);
+        },
+      });
+    }
 
     this.pi.registerMessageRenderer(
       "shadow-report",

@@ -1,20 +1,19 @@
 # AGENTS Evolution
 
-## Stable learnings
+## 2026-09-04 · 将正式发布交给 tag 自动化
 
-- 2026-09-04: Shadow-mind self-evolution should support direct updates to global AGENTS.md, project AGENTS.md, existing/new SKILL.md files, durable memory, and paired evolution logs. Evidence: user clarified the desired model during design discussion. Applied: global self-evolution skill and evolution shadow created outside the package source.
-- 2026-09-04: Avoid generated regions inside AGENTS.md/SKILL.md; keep evolution evidence in paired logs and keep stable rule files clean. Evidence: user explicitly rejected marker-based generated blocks. Applied: use `AGENTS-Evolution.md` and `SKILL-Evolution.md` according to the owning stable file.
-- 2026-09-04: Rule/log pairs must stay compact, around 5K tokens, through active distillation rather than append-only growth. Applied: encoded in the self-evolution skill.
-- 2026-09-04: All-tools authorization must follow the live Main Session registry rather than duplicate a static list that silently drifts. Evidence: code-health shadow identified the mismatch after broad access was configured manually. Applied: `tools: ["*"]` wildcard resolution, tests, documentation, and the global self-evolution shadow definition.
-- 2026-09-04: Tag-driven automation owns validation and formal release artifacts; local release work should only prepare a versioned commit and push its matching tag. Evidence: the user found the local eight-step packaging and repeated validation procedure unnecessarily long after release automation was established. Applied: local instructions delegate verification, building, packing, smoke tests, checksums, OIDC publishing, and GitHub Release creation to the workflow.
-- 2026-09-04: Release latency optimization must preserve the security boundary of the privileged publish job. Evidence: the latest release spent 204 of 234 job seconds in `npm ci`, but restoring a shared dependency cache in the OIDC-enabled workflow triggered zizmor's cache-poisoning error. Applied: retain cache isolation, install from the lockfile with lifecycle scripts/audit/funding work disabled, and run verification and build concurrently.
+- 发生：本地八步发布流程与已经建立的 GitHub Release workflow 重复执行验证、构建、打包和发布。
+- 分析：重复工作增加时间和人为差异；正式产物应由一个可复现的自动化边界统一生成。
+- 改变：本地流程缩减为更新版本、提交并推送、推送匹配 tag；CI 负责完整验证、产物、冒烟、校验和、npm OIDC 发布及 GitHub Release。
 
-## Candidates
+## 2026-09-04 · 删除普通交付的统一质量门禁
 
-- If future package releases should bundle a default self-evolution shadow, add package-level docs and tests rather than relying only on global configuration.
+- 发生：`Delivery quality gate` 要求每次普通交付都运行 release 级全量检查，持续成本过高。
+- 分析：不同改动需要与风险相称的验证；tag 发布已有完整自动门禁，无需让所有本地任务重复承担。
+- 改变：从项目规则删除统一 gate，普通任务采用按需验证，正式发布继续由 workflow 执行完整检查。
 
-## Retired
+## 2026-09-04 · 缩短 Release workflow
 
-- Proposal-only meta-shadow model; retired because the requested system should be able to write AGENTS.md and skills.
-- The local Delivery quality gate requiring full typecheck, tests, build, and project-wide diagnostics on every delivery; retired by explicit user instruction because its recurring time cost outweighed its value. Release tags remain protected by the complete automated workflow, while ordinary work may use task-proportionate verification.
-- Shared npm caching inside the privileged release workflow; retired because cached runtime inputs can cross the OIDC publishing boundary and zizmor correctly flags the resulting cache-poisoning path.
+- 发生：v0.1.17 发布耗时 3 分 54 秒，其中 `npm ci` 占 204 秒。
+- 分析：共享 npm cache 会让可变缓存跨过 OIDC 发布边界并触发 cache-poisoning；应优化非特权执行路径而不削弱隔离。
+- 改变：保留 cache isolation，关闭 lifecycle scripts、audit 与 funding 请求，并行运行 verify/build；v0.1.18 workflow 降至 31 秒。
