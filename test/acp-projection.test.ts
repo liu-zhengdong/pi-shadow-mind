@@ -2,129 +2,186 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { applyAcpCompressionProjection } from "../src/acp-projection.js";
+import { buildSessionContext, type SessionContext, type SessionEntry } from "@earendil-works/pi-coding-agent";
+import { buildShadowSessionContext } from "../src/acp-projection.js";
 import { serializeTrajectory } from "../src/trajectory.js";
 
-const tempDirs: string[] = [];
-
-function writeSidecar(contents: string): string {
-	const dir = mkdtempSync(join(tmpdir(), "acp-projection-"));
-	tempDirs.push(dir);
-	const sessionFile = join(dir, "session.jsonl");
-	writeFileSync(`${sessionFile}.acp.json`, contents, "utf8");
-	return sessionFile;
+type Message = SessionContext["messages"][number];
+const dirs: string[] = [];
+const timestamp = "2026-01-01T00:00:00.000Z";
+function sidecar(value: unknown): string {
+  const dir = mkdtempSync(join(tmpdir(), "acp-projection-"));
+  dirs.push(dir);
+  const file = join(dir, "session.jsonl");
+  writeFileSync(`${file}.acp.json`, JSON.stringify(value));
+  return file;
 }
-
-function messageEntry(id: string, role: string, text: string) {
-	return {
-		type: "message",
-		id,
-		parentId: undefined,
-		message: { role, content: text as unknown, timestamp: 1 },
-	};
+function block(ids: string[], summary = "compressed facts", blockId = "b1") {
+  return { blockId, active: true, summary, effectiveMessageIds: ids };
+}
+function entry(id: string, message: Message): SessionEntry {
+  return { type: "message", id, parentId: null, timestamp, message };
+}
+function user(id: string, text = id): SessionEntry {
+  return entry(id, { role: "user", content: text, timestamp: 0 });
+}
+function assistant(id: string, callIds: string[] = []): SessionEntry {
+  return entry(id, {
+    role: "assistant", content: [
+      { type: "text", text: `text-${id}` },
+      ...callIds.map((callId) => ({ type: "toolCall" as const, id: callId, name: "bash", arguments: { command: `COMMAND_${callId}` } })),
+    ], api: "openai-completions", provider: "openai", model: "test", stopReason: "stop", timestamp: 0,
+    usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+  });
+}
+function result(id: string, callId: string): SessionEntry {
+  return entry(id, { role: "toolResult", toolCallId: callId, toolName: "bash", content: [{ type: "text", text: "ok" }], isError: false, timestamp: 0 });
+}
+function report(id: string): SessionEntry {
+  return { type: "custom_message", id, parentId: null, timestamp, customType: "shadow-report", content: `report-${id}`, display: true };
+}
+function chain(entries: SessionEntry[]): SessionEntry[] {
+  return entries.map((item, index) => ({ ...item, parentId: entries[index - 1]?.id ?? null }));
+}
+function project(entries: SessionEntry[], file?: string, leafId = entries.at(-1)?.id) {
+  return buildShadowSessionContext(entries, leafId, file);
+}
+function trajectory(entries: SessionEntry[], blocks: unknown[]) {
+  const messages = project(chain(entries), sidecar({ blocks })).messages;
+  return serializeTrajectory(messages as unknown as Parameters<typeof serializeTrajectory>[0]);
 }
 
 afterEach(() => {
-	while (tempDirs.length) rmSync(tempDirs.pop()!, { recursive: true, force: true });
+  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-describe("applyAcpCompressionProjection", () => {
-	it("returns entries unchanged when no session file is available", () => {
-		const entries = [messageEntry("m1", "user", "hello")];
-		const result = applyAcpCompressionProjection(entries, undefined);
-		expect(result).toEqual(entries);
-		expect(result).not.toBe(entries);
-	});
+describe("buildShadowSessionContext", () => {
+  it("preserves the native context without a sidecar", () => {
+    const entries = chain([user("u"), assistant("a")]);
+    expect(project(entries)).toEqual(buildSessionContext(entries));
+    expect(project(entries, join(tmpdir(), "missing-acp-review.jsonl"))).toEqual(buildSessionContext(entries));
+  });
 
-	it("returns entries unchanged when the sidecar does not exist", () => {
-		const entries = [messageEntry("m1", "user", "hello")];
-		const result = applyAcpCompressionProjection(entries, join(tmpdir(), "does-not-exist.jsonl"));
-		expect(result).toEqual(entries);
-	});
+  it.each([null, [], 1, "invalid", {}, { blocks: null }, { blocks: [null] },
+    { blocks: [{ ...block(["a"]), summary: null }] },
+    { blocks: [{ ...block(["a"]), summary: " " }] },
+    { blocks: [{ ...block(["a"]), effectiveMessageIds: [1] }] },
+    { blocks: [block(["a"]), block(["u"])] },
+  ])("falls back for invalid sidecar shape %j", (value) => {
+    const entries = chain([user("u"), assistant("a")]);
+    expect(project(entries, sidecar(value))).toEqual(buildSessionContext(entries));
+  });
 
-	it("returns entries unchanged when the sidecar is malformed", () => {
-		const sessionFile = writeSidecar("not json{");
-		const entries = [messageEntry("m1", "user", "hello")];
-		expect(applyAcpCompressionProjection(entries, sessionFile)).toEqual(entries);
-	});
+  it("falls back for malformed JSON", () => {
+    const file = sidecar({});
+    writeFileSync(`${file}.acp.json`, "not json{");
+    const entries = chain([user("u"), assistant("a")]);
+    expect(project(entries, file)).toEqual(buildSessionContext(entries));
+  });
 
-	it("folds covered messages and anchors the block summary at the first covered entry", () => {
-		const sessionFile = writeSidecar(
-			JSON.stringify({
-				blocks: [
-					{
-						blockId: "b7",
-						tier: 1,
-						active: true,
-						summary: "compressed facts",
-						effectiveMessageIds: ["m2", "m3", "m4"],
-					},
-				],
-			}),
-		);
-		const entries = [
-			messageEntry("m1", "user", "first"),
-			messageEntry("m2", "user", "old question"),
-			messageEntry("m3", "assistant", "old answer"),
-			messageEntry("m4", "user", "older question"),
-			messageEntry("m5", "assistant", "fresh answer"),
-		];
-		const result = applyAcpCompressionProjection(entries, sessionFile);
+  it("folds a range once, retains the tail, and leaves session entries untouched", () => {
+    const entries = chain([user("root"), user("old"), assistant("a"), user("tail")]);
+    const before = structuredClone(entries);
+    const text = trajectory(entries, [block(["old", "a"])]);
+    expect(text).toContain("SUMMARY: [ACP block b1 — 2 folded messages]\ncompressed facts");
+    expect(text.match(/SUMMARY:/g)).toHaveLength(1);
+    expect(text).toContain("USER: tail");
+    expect(text).not.toContain("USER: old");
+    expect(text).not.toContain("text-a");
+    expect(entries).toEqual(before);
+  });
 
-		expect(result[0]).toBe(entries[0]);
-		expect(result[4]).toBe(entries[4]);
+  it("preserves ACP's first user message even when covered", () => {
+    const text = trajectory([user("root"), assistant("a"), user("tail")], [block(["root", "a"])]);
+    expect(text).toContain("USER: root");
+    expect(text).not.toContain("text-a");
+  });
 
-		const anchor = result[1].message as { role: string; content: string };
-		expect(anchor.role).toBe("compactionSummary");
-		expect(anchor.content).toContain("b7");
-		expect(anchor.content).toContain("compressed facts");
+  it("ignores inactive blocks and supports decompression on the next activation", () => {
+    const entries = chain([user("root"), assistant("a"), user("tail")]);
+    const file = sidecar({ blocks: [block(["a"])] });
+    expect(project(entries, file).messages.some((message) => message.role === "compactionSummary")).toBe(true);
+    writeFileSync(`${file}.acp.json`, JSON.stringify({ blocks: [{ ...block(["a"]), active: false }] }));
+    expect(project(entries, file)).toEqual(buildSessionContext(entries));
+  });
 
-		for (const folded of [result[2], result[3]]) {
-			const message = folded.message as { role: string; content: unknown };
-			expect(message.role).toBe("assistant");
-			expect(message.content).toEqual([]);
-		}
+  it("folds fully covered multi-call messages and their accompanying text", () => {
+    const text = trajectory([user("root"), assistant("a", ["c1", "c2"]), result("r1", "c1"), result("r2", "c2"), user("tail")],
+      [block(["a#c1", "a#c2", "r1", "r2"])]);
+    expect(text).toContain("compressed facts");
+    expect(text).not.toContain("COMMAND_");
+    expect(text).not.toContain("text-a");
+  });
 
-		expect(result.map((entry) => entry.id)).toEqual(["m1", "m2", "m3", "m4", "m5"]);
-	});
+  it("preserves uncovered calls and original text in a partially folded batch", () => {
+    const text = trajectory([user("root"), assistant("a", ["c1", "c2"]), result("r1", "c1"), result("r2", "c2")],
+      [block(["a#c1", "r1"])]);
+    expect(text).not.toContain("COMMAND_c1");
+    expect(text).toContain("COMMAND_c2");
+    expect(text).toContain("text-a");
+  });
 
-	it("ignores inactive blocks", () => {
-		const sessionFile = writeSidecar(
-			JSON.stringify({
-				blocks: [
-					{ blockId: "b1", active: false, summary: "old", effectiveMessageIds: ["m1"] },
-				],
-			}),
-		);
-		const entries = [messageEntry("m1", "user", "still visible")];
-		expect(applyAcpCompressionProjection(entries, sessionFile)).toEqual(entries);
-	});
+  it("retains separate summaries anchored to the same multi-call entry", () => {
+    const text = trajectory([user("root"), assistant("a", ["c1", "c2"]), result("r1", "c1"), result("r2", "c2")],
+      [block(["a#c1", "r1"], "first summary", "b1"), block(["a#c2", "r2"], "second summary", "b2")]);
+    expect(text).toContain("first summary");
+    expect(text).toContain("second summary");
+    expect(text.match(/SUMMARY:/g)).toHaveLength(2);
+    expect(text).not.toContain("COMMAND_");
+  });
 
-	it("produces a compact serialized trajectory with a single SUMMARY line per block", () => {
-		const sessionFile = writeSidecar(
-			JSON.stringify({
-				blocks: [
-					{
-						blockId: "b3",
-						active: true,
-						summary: "everything before",
-						effectiveMessageIds: ["m1", "m2"],
-					},
-				],
-			}),
-		);
-		const entries = [
-			messageEntry("m1", "user", "forgotten question"),
-			messageEntry("m2", "assistant", "forgotten answer"),
-			messageEntry("m3", "user", "current question"),
-		];
-		const projected = applyAcpCompressionProjection(entries, sessionFile);
-		const trajectory = serializeTrajectory(projected.map((entry) => entry.message));
+  it("folds a single tool call by its entry ID", () => {
+    const text = trajectory([user("root"), assistant("a", ["c1"]), result("r1", "c1")], [block(["a", "r1"])]);
+    expect(text).toContain("compressed facts");
+    expect(text).not.toContain("COMMAND_c1");
+  });
 
-		expect(trajectory).toContain("SUMMARY: [ACP block b3 — 2 folded messages]");
-		expect(trajectory).toContain("everything before");
-		expect(trajectory).toContain("USER: current question");
-		expect(trajectory).not.toContain("forgotten question");
-		expect(trajectory).not.toContain("forgotten answer");
-	});
+  it("folds covered custom shadow reports", () => {
+    const text = trajectory([user("root"), report("s"), user("tail")], [block(["s"])]);
+    expect(text).toContain("compressed facts");
+    expect(text).not.toContain("report-s");
+  });
+
+  it("strips orphaned calls/results across compression boundaries", () => {
+    const entries = [user("root"), assistant("a", ["c1", "c2"]), result("r1", "c1"), result("r2", "c2")];
+    const text = trajectory(entries, [block(["a#c1", "r2"])]);
+    expect(text).not.toContain("COMMAND_");
+    expect(text).not.toContain("TOOL RESULT:");
+  });
+
+  it("does not let an inactive branch consume the summary anchor", () => {
+    const entries = chain([user("root"), assistant("left")]);
+    entries.push({ ...assistant("right"), parentId: "root" });
+    const text = serializeTrajectory(project(entries, sidecar({ blocks: [block(["left", "right"])] }), "right").messages as unknown as Parameters<typeof serializeTrajectory>[0]);
+    expect(text).toContain("compressed facts");
+    expect(text).not.toContain("text-left");
+    expect(text).not.toContain("text-right");
+  });
+
+  it("ignores blocks covering only another branch", () => {
+    const entries = chain([user("root"), assistant("left")]);
+    entries.push({ ...assistant("right"), parentId: "root" });
+    expect(project(entries, sidecar({ blocks: [block(["left"])] }), "right")).toEqual(buildSessionContext(entries, "right"));
+  });
+
+  it("applies native compaction before ACP and retains the native summary", () => {
+    const compact: SessionEntry = { type: "compaction", id: "compact", parentId: null, timestamp, summary: "native facts", firstKeptEntryId: "kept", tokensBefore: 100 };
+    const entries = chain([user("root"), assistant("old"), user("kept"), assistant("a"), compact, user("tail")]);
+    const text = trajectory(entries, [block(["old", "a"])]);
+    expect(text).toContain("SUMMARY: native facts");
+    expect(text).toContain("compressed facts");
+    expect(text).not.toContain("text-old");
+    expect(text).not.toContain("text-a");
+    expect(text).toContain("USER: kept");
+  });
+
+  it("keeps only active nested summaries", () => {
+    const text = trajectory([user("root"), assistant("a"), assistant("b")], [
+      { ...block(["a"], "obsolete", "b1"), active: false },
+      block(["a", "b"], "merged summary", "b2"),
+    ]);
+    expect(text).toContain("merged summary");
+    expect(text).not.toContain("obsolete");
+    expect(text.match(/SUMMARY:/g)).toHaveLength(1);
+  });
 });

@@ -241,6 +241,8 @@ Main system prompt
 
 这里的“全部历史”以 Main 激活时实际可见的上下文为准。Main 已发生 compaction 时，Shadow 继承压缩后的上下文，不绕过 compaction 读取已被替换的原始消息。
 
+ACP（Active Context Pruning，billion-context-pi）的持久压缩由独立上下文适配器处理：先解析当前分支及原生 compaction，再读取当前会话 `.acp.json` 中的有效压缩块，将可见范围内的覆盖内容替换为摘要。适配范围包含普通消息、自定义消息和单条消息中的部分工具调用，并保留 ACP 的首条用户消息保护。每次激活重新读取状态，以反映后续压缩和解压；无可用状态时沿用 Pi 原生上下文。该适配器的职责是投影持久压缩历史，Main 的其他扩展上下文变换仍由对应扩展负责。
+
 Shadow 直接使用 Main 上下文的完整净化子集。如果某个 Shadow 配置的 `run_with_model` 上下文窗口更小而无法容纳轨迹，则该次激活失败并记录原因，不生成介入消息。
 
 以下内容不进入 Shadow 上下文：

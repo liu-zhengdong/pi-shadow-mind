@@ -1,100 +1,123 @@
-import { readFileSync } from "node:fs";
+import {
+  buildContextEntries,
+  buildSessionContext,
+  sessionEntryToContextMessages,
+  type SessionContext,
+  type SessionEntry,
+} from "@earendil-works/pi-coding-agent";
+import { readAcpBlocks, type AcpBlock } from "./acp-state.js";
+
+type Message = SessionContext["messages"][number];
+type Assistant = Extract<Message, { role: "assistant" }>;
+type ToolCall = Extract<Assistant["content"][number], { type: "toolCall" }>;
+interface VisibleMessage {
+  id: string;
+  message: Message;
+}
 
 /**
- * ACP (agent context protocol) compression sidecar support.
- *
- * pi's ACP context manager folds old conversation ranges into summaries stored
- * in `<sessionFile>.acp.json`. The session entry log itself is never rewritten
- * and no native `compaction` entries are created, so `buildSessionContext`
- * still reconstructs the full uncompressed history and the serialized shadow
- * trajectory can exceed the model context window (every activation then fails
- * instantly with "trajectory ~N tokens exceeds ... context window").
- *
- * This module projects the entry list the same way the main agent sees it:
- * every message covered by an active ACP block collapses, and the first
- * covered message of each block is replaced by a `compactionSummary` message
- * carrying the block summary.
+ * Apply persisted Active Context Pruning (billion-context-pi) blocks to the
+ * selected Pi context, after native compaction and branch resolution. This
+ * adapter projects history only; it does not run ACP tools or context hooks.
  */
-
-interface AcpBlock {
-	blockId?: unknown;
-	tier?: unknown;
-	summary?: unknown;
-	active?: unknown;
-	effectiveMessageIds?: unknown;
+export function buildShadowSessionContext(
+  entries: SessionEntry[],
+  leafId: string | null | undefined,
+  sessionFile: string | undefined,
+): SessionContext {
+  const context = buildSessionContext(entries, leafId);
+  const blocks = readAcpBlocks(sessionFile);
+  if (!blocks.length) return context;
+  const visible = buildContextEntries(entries, leafId).flatMap((entry) =>
+    sessionEntryToContextMessages(entry).map((message) => ({ id: entry.id, message })),
+  );
+  return { ...context, messages: projectMessages(visible, blocks) };
 }
 
-interface SessionEntryLike {
-	id?: unknown;
-	type?: unknown;
-	message?: unknown;
+function toolCalls(message: Message): ToolCall[] {
+  return message.role === "assistant"
+    ? message.content.filter((part): part is ToolCall => part.type === "toolCall")
+    : [];
 }
 
-interface SessionMessageLike {
-	role?: unknown;
+// ACP splits a multi-call assistant entry into one core message per call.
+function coverageIds({ id, message }: VisibleMessage): string[] {
+  const calls = toolCalls(message);
+  return calls.length > 1 ? calls.map((call) => `${id}#${call.id}`) : [id];
 }
 
-/** Stub role whose empty content the trajectory serializer skips entirely. */
-const FOLDED_STUB_ROLE = "assistant";
-
-/**
- * Return `entries` with every message covered by an active ACP block folded
- * away. The first covered message of each block becomes a `compactionSummary`
- * message containing the block summary; later covered messages become empty
- * assistant stubs that `serializeTrajectory` skips. Entry ids and parent links
- * are preserved so branch walking in `buildSessionContext` is unaffected.
- *
- * Any failure (missing/invalid sidecar, no active blocks) returns the entries
- * unchanged, so sessions without ACP behave exactly as before.
- */
-export function applyAcpCompressionProjection<T extends SessionEntryLike>(
-	entries: readonly T[],
-	sessionFile: string | undefined,
-): T[] {
-	if (!sessionFile) return [...entries];
-	let sidecar: { blocks?: unknown };
-	try {
-		sidecar = JSON.parse(readFileSync(`${sessionFile}.acp.json`, "utf8")) as { blocks?: unknown };
-	} catch {
-		return [...entries];
-	}
-	const blocks = (Array.isArray(sidecar.blocks) ? sidecar.blocks : [])
-		.filter((block): block is AcpBlock => Boolean(block) && typeof block === "object")
-		.filter((block) => block.active === true && typeof block.blockId === "string");
-	if (!blocks.length) return [...entries];
-
-	const coveredBy = new Map<string, AcpBlock>();
-	for (const block of blocks) {
-		const ids = Array.isArray(block.effectiveMessageIds) ? block.effectiveMessageIds : [];
-		for (const id of ids) {
-			if (typeof id === "string" && !coveredBy.has(id)) coveredBy.set(id, block);
-		}
-	}
-	if (!coveredBy.size) return [...entries];
-
-	const emitted = new Set<string>();
-	return entries.map((entry) => {
-		const block = typeof entry.id === "string" ? coveredBy.get(entry.id) : undefined;
-		if (!block) return entry;
-		const message = entry.message as SessionMessageLike | undefined;
-		if (entry.type !== "message" || !message || typeof message !== "object") return entry;
-		const blockId = block.blockId as string;
-		if (!emitted.has(blockId)) {
-			emitted.add(blockId);
-			const summary = typeof block.summary === "string" ? block.summary : "";
-			return {
-				...entry,
-				message: {
-					...message,
-					role: "compactionSummary",
-					content: `[ACP block ${blockId} — ${coverageCount(block)} folded messages]\n${summary}`,
-				},
-			} as T;
-		}
-		return { ...entry, message: { ...message, role: FOLDED_STUB_ROLE, content: [] } } as T;
-	});
+function summaryMessage(block: AcpBlock): Message {
+  return {
+    role: "compactionSummary",
+    summary: `[ACP block ${block.blockId} — ${block.effectiveMessageIds.length} folded messages]\n${block.summary}`,
+    tokensBefore: 0,
+    timestamp: 0,
+  };
 }
 
-function coverageCount(block: AcpBlock): number {
-	return Array.isArray(block.effectiveMessageIds) ? block.effectiveMessageIds.length : 0;
+function projectMessages(visible: VisibleMessage[], blocks: AcpBlock[]): Message[] {
+  const indexById = new Map<string, number>();
+  visible.forEach((item, index) => {
+    for (const id of coverageIds(item)) indexById.set(id, index);
+  });
+  const covered = new Set<string>();
+  const anchors = new Map<number, AcpBlock[]>();
+  for (const block of blocks) {
+    const positions = block.effectiveMessageIds.flatMap((id) => {
+      const index = indexById.get(id);
+      return index === undefined ? [] : [index];
+    });
+    // A block belonging only to an inactive branch/native-compacted range
+    // must not inject that branch's history into the current context.
+    if (!positions.length) continue;
+    const first = positions.reduce((left, right) => Math.min(left, right));
+    anchors.set(first, [...(anchors.get(first) ?? []), block]);
+    for (const id of block.effectiveMessageIds) covered.add(id);
+  }
+  if (!covered.size) return visible.map(({ message }) => message);
+
+  // ACP protects the first user core message, including extension messages
+  // that Pi exposes to the model as user content.
+  const firstUser = visible.findIndex(({ message }) =>
+    message.role === "user" || message.role === "custom",
+  );
+  const messages: Message[] = [];
+  visible.forEach((item, index) => {
+    for (const block of anchors.get(index) ?? []) messages.push(summaryMessage(block));
+    const retained = index === firstUser ? item.message : retainUncovered(item, covered);
+    if (retained) messages.push(retained);
+  });
+  return removeOrphanedTools(messages);
+}
+
+function retainUncovered(item: VisibleMessage, covered: Set<string>): Message | undefined {
+  const ids = coverageIds(item);
+  if (!ids.some((id) => covered.has(id))) return item.message;
+  if (ids.every((id) => covered.has(id))) return undefined;
+  const message = item.message;
+  if (message.role !== "assistant") return message;
+  // A partially folded tool batch keeps the original text and uncovered calls.
+  return {
+    ...message,
+    content: message.content.filter((part) =>
+      part.type !== "toolCall" || !covered.has(`${item.id}#${part.id}`),
+    ),
+  };
+}
+
+/** Match ACP's pair cleanup when compression crosses a tool-call boundary. */
+function removeOrphanedTools(messages: Message[]): Message[] {
+  const resultIds = new Set(messages.flatMap((message) =>
+    message.role === "toolResult" ? [message.toolCallId] : [],
+  ));
+  const paired = messages.flatMap((message): Message[] => {
+    const calls = toolCalls(message);
+    if (!calls.length || message.role !== "assistant") return [message];
+    const retained = calls.filter((call) => call.name === "compress" || resultIds.has(call.id));
+    if (!retained.length) return [];
+    const ids = new Set(retained.map((call) => call.id));
+    return [{ ...message, content: message.content.filter((part) => part.type !== "toolCall" || ids.has(part.id)) }];
+  });
+  const callIds = new Set(paired.flatMap((message) => toolCalls(message).map((call) => call.id)));
+  return paired.filter((message) => message.role !== "toolResult" || callIds.has(message.toolCallId));
 }
