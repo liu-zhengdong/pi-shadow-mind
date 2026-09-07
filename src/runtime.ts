@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
-  buildSessionContext,
+  type SessionContext,
   type ExtensionAPI,
   type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
@@ -17,6 +17,7 @@ import { registerManagementTools } from "./management-tools.js";
 import { ShadowRegistry } from "./registry.js";
 import { ReportBatcher, formatReportBatch } from "./report-batcher.js";
 import { createRandom } from "./random.js";
+import { buildShadowSessionContext } from "./acp-projection.js";
 import {
   decideFinalResponse,
   decideHeartbeat,
@@ -50,7 +51,6 @@ import {
 
 const SESSION_TEARDOWN_TIMEOUT_MS = 1_000;
 
-type SessionContext = ReturnType<typeof buildSessionContext>;
 interface ShadowLaunch {
   ctx: ExtensionContext;
   shadow: ShadowDefinition;
@@ -260,13 +260,15 @@ export class ShadowMindRuntime {
       },
     });
 
-    this.pi.registerShortcut("alt+s", {
-      description: "Pause or resume Shadow Mind",
-      handler: (ctx) => {
-        this.latestContext = ctx;
-        this.setPaused(!this.paused, ctx);
-      },
-    });
+    for (const shortcut of ["f6", "alt+s"] as const) {
+      this.pi.registerShortcut(shortcut, {
+        description: "Pause or resume Shadow Mind",
+        handler: (ctx) => {
+          this.latestContext = ctx;
+          this.setPaused(!this.paused, ctx);
+        },
+      });
+    }
 
     this.pi.registerMessageRenderer(
       "shadow-report",
@@ -328,9 +330,10 @@ export class ShadowMindRuntime {
     });
     if (!decision.activated.length) return;
 
-    const context = buildSessionContext(
+    const context = buildShadowSessionContext(
       ctx.sessionManager.getEntries(),
       ctx.sessionManager.getLeafId(),
+      ctx.sessionManager.getSessionFile(),
     );
     const availableTools = new Set(
       this.pi.getAllTools().map((tool) => tool.name),
@@ -382,9 +385,10 @@ export class ShadowMindRuntime {
       return;
     }
 
-    const context = buildSessionContext(
+    const context = buildShadowSessionContext(
       ctx.sessionManager.getEntries(),
       ctx.sessionManager.getLeafId(),
+      ctx.sessionManager.getSessionFile(),
     );
     const availableTools = new Set(
       this.pi.getAllTools().map((tool) => tool.name),

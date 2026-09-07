@@ -44,7 +44,7 @@ export function serializeTrajectory(messages: readonly MessageLike[]): string {
       continue;
     }
     if (message.role === "compactionSummary" || message.role === "branchSummary") {
-      appendText(lines, "SUMMARY", message.content);
+      appendText(lines, "SUMMARY", message.summary ?? message.content);
     }
   }
   return `<main-agent-trajectory>\n${lines.join("\n")}\n</main-agent-trajectory>`;
