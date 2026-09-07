@@ -94,7 +94,7 @@ pi install npm:pi-shadow-mind
 
 扩展不会默认创建 Shadow Mind。全局默认运行超时为 300 秒，单个 Shadow 可以通过 `timeout_seconds` 覆盖。
 
-按 `F6` 或 `Alt+S` 可以暂停或恢复当前 Session 的 Shadow Mind。macOS 上可能需要按 `Fn+F6`；`Alt+S` 对应 `Option+S`，是否生效取决于终端的 Option 键映射。暂停时底部状态显示为 `⏸ Paused`，不再显示没有信息量的零计数。使用 `/shadow` 显示或隐藏状态面板，`/shadow status` 查看摘要，也可以通过 `/shadow toggle`、`/shadow pause` 和 `/shadow resume` 控制状态。报告正文默认隐藏；使用 `/shadow reports` 在 status 面板对应的 recent run 下切换显示状态，也可以使用 `/shadow reports hide` 隐藏。管理工具可以查询、创建、更新、启用、禁用和删除 Shadow Mind，以及读取或修改全局配置。所有写操作都需要用户确认。
+按 `F6` 或 `Alt+S` 可以暂停或恢复当前 Session 的 Shadow Mind。macOS 上可能需要按 `Fn+F6`；`Alt+S` 对应 `Option+S`，是否生效取决于终端的 Option 键映射。暂停时底部状态显示为 `🐙 Paused`，不再显示没有信息量的零计数。使用 `/shadow` 显示或隐藏状态面板，`/shadow status` 查看摘要，也可以通过 `/shadow toggle`、`/shadow pause` 和 `/shadow resume` 控制状态。TUI 模式下，`/shadow reports` 直接打开限高、可滚动的查看器，展示最近交付的 5 份报告，独立于最近运行列表。使用 ↑/↓、PageUp/PageDown 或 Home/End 滚动，Escape 或 `/shadow reports hide` 关闭。查看器显示打开时的快照，重新打开可查看新报告。报告历史仅保留在当前 Session 内存中，切换会话或 reload 时清空；已持久化的报告仍可在对话记录中查看。状态面板保持简短摘要。管理工具可以查询、创建、更新、启用、禁用和删除 Shadow Mind，以及读取或修改全局配置。所有写操作都需要用户确认。
 
 ## 在 DSH 中使用
 

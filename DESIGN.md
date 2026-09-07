@@ -438,6 +438,8 @@ Shadow 的临时 AgentSession 不跨激活复用，也不写回记忆。
 
 插件提供 `Alt+S` 快捷键以及 `/shadow toggle`、`/shadow pause`、`/shadow resume` 命令，控制当前 Main Session 是否继续产生 heartbeat 或 final-response 检查，不修改全局 Shadow Markdown。执行 pause 时立即中止当前 Session 已运行的 Shadow、清空排队检查和尚未发送的聚合结果并释放并发槽位；resume 后恢复后续调度。暂停时底部状态固定显示 `🐙 Paused`，不展示恒为零的运行数量。
 
+报告查看由独立的 ReportBrowser 拥有命令、查看器生命周期与最近交付历史，Runtime 只转发交付结果、命令和会话重置。历史按交付顺序保留最近 5 份报告及其交付时间，与最近运行列表独立。TUI 中 `/shadow reports` 直接打开完整正文快照，查看器按终端尺寸限高并支持逐行、翻页及首尾滚动；Escape 或 `/shadow reports hide` 关闭。状态面板继续展示紧凑运行摘要。报告查看只使用当前 Session 的内存历史，切换会话或 reload 时关闭查看器并清空历史；持久化报告由原有会话记录承载。
+
 同一个 Shadow 在前一次实例仍运行时不重复激活；不同 Shadow 可以并行运行。
 
 前一次实例结束后，同一个 Shadow 可以在同一用户 epoch 内被后续 heartbeat 再次激活，不设置每 epoch 次数上限。每次仍创建全新的临时 AgentSession，并取得激活时刻的最新完整净化轨迹。

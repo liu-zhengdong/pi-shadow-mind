@@ -8,7 +8,6 @@ import type { ShadowRunResult } from "../src/shadow-runner.js";
 import type {
   RegistrySnapshot,
   ShadowDefinition,
-  ShadowReport,
 } from "../src/types.js";
 import { zeroUsage, type ShadowUsage } from "../src/usage.js";
 
@@ -17,22 +16,7 @@ type EventHandler = (event: unknown, context: ExtensionContext) => unknown;
 interface RuntimeInternals {
   active: Map<string, { shadow: ShadowDefinition; epoch: number }>;
   epoch: number;
-  recentRuns: Array<{
-    runId: string;
-    shadowName: string;
-    completedAt: string;
-    result: ShadowRunResult;
-  }>;
-  reportHistory: {
-    add: (reports: readonly ShadowReport[]) => void;
-  };
-  reportsVisible: boolean;
-  panelVisible: boolean;
-  statusLines: () => string[];
-  registerUi: () => void;
-  deliverReports: (reports: readonly ShadowReport[]) => Promise<void>;
-  sessionLifetime: { activate: () => void };
-  latestContext?: ExtensionContext;
+  recentRuns: unknown[];
   sessionUsage: ShadowUsage;
   usageStore: {
     add: (usage: ShadowUsage) => Promise<void>;
@@ -195,77 +179,6 @@ describe("ShadowMindRuntime session lifecycle", () => {
     expect(persisted).toEqual([usage]);
     expect(internals.sessionUsage).toEqual(zeroUsage());
     expect(internals.recentRuns).toHaveLength(0);
-  });
-  it("shows and hides delivered report content in the status panel", async () => {
-    let commandHandler:
-      | ((args: string, ctx: ExtensionContext) => unknown)
-      | undefined;
-    const runtime = new ShadowMindRuntime({
-      registerCommand: (_name: string, definition: { handler: typeof commandHandler }) => {
-        commandHandler = definition.handler;
-      },
-      registerShortcut: vi.fn(),
-      registerMessageRenderer: vi.fn(),
-      sendMessage: vi.fn(),
-      appendEntry: vi.fn(),
-    } as unknown as ExtensionAPI);
-    const internals = runtime as unknown as RuntimeInternals;
-    internals.registerUi();
-    internals.recentRuns.push(
-      {
-        runId: "run-old",
-        shadowName: "Old Review",
-        completedAt: new Date().toISOString(),
-        result: runResult(zeroUsage()),
-      },
-      {
-        runId: "run-1",
-        shadowName: "Latest Review",
-        completedAt: new Date().toISOString(),
-        result: runResult(zeroUsage()),
-      },
-    );
-    const context = {
-      ui: {
-        notify: vi.fn(),
-        setStatus: vi.fn(),
-        setWidget: vi.fn(),
-      },
-      isIdle: vi.fn().mockReturnValue(true),
-    } as unknown as ExtensionContext;
-    internals.latestContext = context;
-    internals.panelVisible = true;
-    internals.sessionLifetime.activate();
-    await internals.deliverReports([
-      {
-        shadowId: "shadow-1",
-        shadowName: "Review",
-        content: "line one\nline two",
-        epoch: 0,
-        runId: "run-1",
-      },
-    ]);
-
-    expect(internals.statusLines()).not.toContain("    line one");
-    await commandHandler!("reports", context);
-    expect(internals.statusLines()).toContain("    line one");
-    expect(context.ui.setWidget).toHaveBeenLastCalledWith(
-      "shadow-mind-panel",
-      expect.any(Function),
-      { placement: "aboveEditor" },
-    );
-    expect(internals.statusLines()).toContain("    line two");
-    expect(internals.statusLines().findIndex((line) => line === "    line one"))
-      .toBeGreaterThan(
-        internals.statusLines().findIndex((line) => line.includes("· Old Review ·")),
-      );
-
-    await commandHandler!("reports hide", context);
-    expect(internals.statusLines()).not.toContain("    line one");
-    await commandHandler!("reports", context);
-    expect(internals.statusLines()).toContain("    line one");
-    await commandHandler!("reports", context);
-    expect(internals.statusLines()).not.toContain("    line one");
   });
 
   it("skips text-only turns and forwards completed tool names for refreshed evaluation", async () => {
