@@ -82,6 +82,7 @@ export function decideHeartbeat(options: {
       candidates: [],
       modelFiltered: [],
       runningExcluded: [],
+      roundFiltered: [],
       toolFiltered: [],
     };
   }
@@ -127,6 +128,7 @@ export function decideHeartbeat(options: {
     })),
     modelFiltered,
     runningExcluded,
+    roundFiltered: [],
     toolFiltered,
   };
 }
@@ -134,14 +136,24 @@ export function decideHeartbeat(options: {
 export function decideFinalResponse(options: {
   shadows: readonly ShadowDefinition[];
   mainModelId: string;
+  finalResponseRounds?: ReadonlyMap<string, number>;
 }): ShadowActivationDecision {
   const modelFiltered: string[] = [];
+  const roundFiltered: string[] = [];
   const candidates = options.shadows
     .filter((shadow) => {
       if (!shadow.enabled || !hasTrigger(shadow, "final_response"))
         return false;
       if (!matchesModel(shadow, options.mainModelId)) {
         modelFiltered.push(shadow.id);
+        return false;
+      }
+      const maxRounds = shadow.finalResponseRounds ?? 0;
+      if (
+        maxRounds > 0 &&
+        (options.finalResponseRounds?.get(shadow.id) ?? 0) >= maxRounds
+      ) {
+        roundFiltered.push(shadow.id);
         return false;
       }
       return true;
@@ -156,6 +168,7 @@ export function decideFinalResponse(options: {
     })),
     modelFiltered,
     runningExcluded: [],
+    roundFiltered,
   };
 }
 

@@ -109,6 +109,7 @@ frontmatter 包含以下运行字段：
 | `debug` | 是否保存完整 Shadow Session 日志；默认 `false` |
 | `activation_probability` | 每次 heartbeat 时独立激活的概率，范围为 `0` 到 `1`；默认 `0.3`，不影响 final_response |
 | `trigger` | 激活方式，可包含 `heartbeat`、`final_response` 或两者；默认 `[heartbeat]` |
+| `final_response_rounds` | 主 Agent 输出结束后的最大运行轮数。设为 `1` 时仅运行一次，避免反馈循环导致持续对话；缺省或 `0` 表示不限制 |
 | `activation_tools` | heartbeat 候选工具过滤；该 Main 轮次命中任意指定工具名即可，默认 `[]` 表示不限制；final_response 独立于此过滤 |
 | `active_for_models` | 适用于哪些 Main 模型；`"*"` 表示全部模型，省略时默认 `["*"]` |
 | `run_with_model` | Shadow 自己使用的模型；省略时使用插件默认模型 |
@@ -346,7 +347,7 @@ Main 在会话中切换模型后，后续 heartbeat 直接依据新模型重新�
 
 每次最终回复检查拥有独立、递增的 review generation。独立的 completion-review 协调器统一拥有 generation、等待队列、运行完成计数和报告聚合，Runtime 只转发宿主生命周期事件与 Shadow 启停通知。同一 generation 的报告先暂存，所有匹配 Shadow 都进入终态后才合并为一次 `shadow-report`；因此较慢的同批检查不会在 Main 已开始修订后单独 steer。新的最终回复、新用户输入、其他报告触发的修订或 Session 关闭都会使旧 generation 失效，并清空尚未启动的项目；仍在收尾的旧运行只能记录 lifetime usage，不能再投递报告。异步刷新配置和 Registry 时还会同时校验启动请求与 epoch，防止等待 I/O 的旧最终回复在新任务中恢复调度。
 
-检查结果沿用普通 `shadow-report` 的 steer/follow-up 机制。因此 Main 根据聚合报告修正并再次给出最终回复后，可以再次触发新一代完成检查；Shadow 没有发现时保持沉默，循环自然结束。
+检查结果沿用普通 `shadow-report` 的 steer/follow-up 机制。Main 根据聚合报告修正并再次给出最终回复后，默认会再次触发完成检查。若需避免反馈循环导致持续对话，可设置 `final_response_rounds: 1` 限制仅运行一轮（缺省或 `0` 表示不限制）。Shadow 没有发现时保持沉默，循环自然结束。
 
 ## 6. Shadow 的输出与介入
 

@@ -101,6 +101,9 @@ export function serializeShadow(shadow: ShadowDraft): string {
     ...(shadow.timeoutSeconds !== undefined
       ? { timeout_seconds: shadow.timeoutSeconds }
       : {}),
+    ...(shadow.finalResponseRounds !== undefined
+      ? { final_response_rounds: shadow.finalResponseRounds }
+      : {}),
     ...(shadow.activationTools && shadow.activationTools.length
       ? { activation_tools: shadow.activationTools }
       : {}),
@@ -113,7 +116,10 @@ export function describeShadow(shadow: ShadowDefinition): string {
   const actTools = shadow.activationTools.length
     ? ` act_tools=${shadow.activationTools.join(",")}`
     : "";
-  return `${shadow.enabled ? "enabled" : "disabled"} ${shadow.id} (${shadow.name}) p=${shadow.activationProbability} trigger=${shadow.trigger.join(",")} models=${shadow.activeForModels.join(",")}${actTools} tools=${shadow.tools.join(",") || "default"} file=${basename(shadow.filePath)}`;
+  const finalRounds = shadow.finalResponseRounds
+    ? ` final_rounds=${shadow.finalResponseRounds}`
+    : "";
+  return `${shadow.enabled ? "enabled" : "disabled"} ${shadow.id} (${shadow.name}) p=${shadow.activationProbability} trigger=${shadow.trigger.join(",")} models=${shadow.activeForModels.join(",")}${finalRounds}${actTools} tools=${shadow.tools.join(",") || "default"} file=${basename(shadow.filePath)}`;
 }
 
 function definedOnly<T extends object>(value: T): Partial<T> {

@@ -14,6 +14,7 @@ const shadow = (
   probability = 1,
   trigger: ShadowDefinition["trigger"] = ["heartbeat"],
   activationTools: string[] = [],
+  finalResponseRounds?: number,
 ): ShadowDefinition => ({
   id,
   name: id,
@@ -22,6 +23,7 @@ const shadow = (
   activationProbability: probability,
   trigger,
   activeForModels: ["openai/gpt"],
+  ...(finalResponseRounds !== undefined ? { finalResponseRounds } : {}),
   tools: [],
   activationTools,
   prompt: id,
@@ -256,5 +258,19 @@ describe("decideFinalResponse", () => {
     });
     expect(result.activated).toEqual([]);
     expect(result.modelFiltered).toEqual(["other"]);
+  });
+
+  it("filters a Shadow after its final-response round limit", () => {
+    const limited = shadow("limited", 1, ["final_response"], [], 1);
+    const unlimited = shadow("unlimited", 1, ["final_response"]);
+    const result = decideFinalResponse({
+      shadows: [limited, unlimited],
+      mainModelId: "openai/gpt",
+      finalResponseRounds: new Map([["limited", 1]]),
+    });
+    expect(result.activated.map(({ shadow }) => shadow.id)).toEqual([
+      "unlimited",
+    ]);
+    expect(result.roundFiltered).toEqual(["limited"]);
   });
 });

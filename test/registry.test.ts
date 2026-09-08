@@ -28,6 +28,39 @@ describe("parseShadowMarkdown", () => {
     expect(shadow.activationTools).toEqual(["bash", "edit", "write"]);
   });
 
+  it("parses final_response_rounds and defaults to unlimited", () => {
+    const unlimited = parseShadowMarkdown(
+      "---\nid: unlimited\ntrigger: final_response\n---\nReview completion.",
+      "C:/tmp/unlimited.md",
+    );
+    const limited = parseShadowMarkdown(
+      "---\nid: limited\ntrigger: final_response\nfinal_response_rounds: 1\n---\nReview completion.",
+      "C:/tmp/limited.md",
+    );
+    const explicitUnlimited = parseShadowMarkdown(
+      "---\nid: explicit-unlimited\nfinal_response_rounds: 0\n---\nReview completion.",
+      "C:/tmp/explicit-unlimited.md",
+    );
+    expect(unlimited.finalResponseRounds).toBeUndefined();
+    expect(limited.finalResponseRounds).toBe(1);
+    expect(explicitUnlimited.finalResponseRounds).toBe(0);
+  });
+
+  it("rejects invalid final_response_rounds", () => {
+    expect(() =>
+      parseShadowMarkdown(
+        "---\nid: bad\nfinal_response_rounds: -1\n---\nReview.",
+        "C:/tmp/bad-rounds.md",
+      ),
+    ).toThrow(/final_response_rounds/);
+    expect(() =>
+      parseShadowMarkdown(
+        "---\nid: bad\nfinal_response_rounds: 1.5\n---\nReview.",
+        "C:/tmp/bad-rounds.md",
+      ),
+    ).toThrow(/final_response_rounds/);
+  });
+
   it("rejects invalid activation_tools", () => {
     expect(() =>
       parseShadowMarkdown(

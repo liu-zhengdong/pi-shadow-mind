@@ -131,6 +131,10 @@ export function parseShadowMarkdown(
       value.timeout_seconds,
       "timeout_seconds",
     ),
+    finalResponseRounds: optionalNonNegativeInteger(
+      value.final_response_rounds,
+      "final_response_rounds",
+    ),
     activationTools: cleanStringArray(
       value.activation_tools,
       [],
@@ -177,6 +181,15 @@ function optionalPositiveNumber(
   if (value === undefined) return undefined;
   if (!isFiniteNumber(value) || value <= 0)
     throw new Error(`${name} must be positive`);
+  return value;
+}
+function optionalNonNegativeInteger(
+  value: unknown,
+  name: string,
+): number | undefined {
+  if (value === undefined) return undefined;
+  if (!isFiniteNumber(value) || !Number.isInteger(value) || value < 0)
+    throw new Error(`${name} must be a non-negative integer`);
   return value;
 }
 function triggerArray(

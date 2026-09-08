@@ -28,6 +28,7 @@ export interface ShadowDefinition {
   runWithModel?: string;
   thinkingLevel?: ThinkingLevel;
   timeoutSeconds?: number;
+  finalResponseRounds?: number;
   tools: string[];
   activationTools: string[];
   prompt: string;
@@ -73,6 +74,8 @@ export interface ShadowActivationDecision {
   modelFiltered: string[];
   /** Shadow ids excluded because the same shadow is already running. */
   runningExcluded: string[];
+  /** Shadow ids excluded because their final-response round limit was reached. */
+  roundFiltered: string[];
 }
 
 export interface HeartbeatDecision extends ShadowActivationDecision {

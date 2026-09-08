@@ -112,6 +112,7 @@ export class ShadowMindRuntime {
   private sessionUsage: ShadowUsage = zeroUsage();
   private shadowCount = 0;
   private completedWithFinalText = false;
+  private readonly finalResponseRounds = new Map<string, number>();
   private random: () => number = Math.random;
 
   constructor(private readonly pi: ExtensionAPI) {
@@ -140,6 +141,7 @@ export class ShadowMindRuntime {
       this.latestContext = ctx;
       this.modelCalls = 0;
       this.completedWithFinalText = false;
+      this.finalResponseRounds.clear();
       this.sessionUsage = zeroUsage();
       this.recentRuns.length = 0;
       this.reports.reset();
@@ -158,6 +160,7 @@ export class ShadowMindRuntime {
       this.latestContext = ctx;
       if (event.source === "extension") return;
       this.completedWithFinalText = false;
+      this.finalResponseRounds.clear();
       this.epoch += 1;
       this.abortAll("new-user-input");
     });
@@ -376,6 +379,7 @@ export class ShadowMindRuntime {
     const decision = decideFinalResponse({
       shadows: snapshot.shadows,
       mainModelId: fullModelId,
+      finalResponseRounds: this.finalResponseRounds,
     });
     this.record("final-response", {
       candidates: decision.candidates,
@@ -385,6 +389,9 @@ export class ShadowMindRuntime {
         : {}),
       ...(decision.runningExcluded.length
         ? { runningExcluded: decision.runningExcluded }
+        : {}),
+      ...(decision.roundFiltered.length
+        ? { roundFiltered: decision.roundFiltered }
         : {}),
     });
     if (!decision.activated.length) {
@@ -429,7 +436,13 @@ export class ShadowMindRuntime {
     const runEpoch = options.epoch ?? this.epoch;
     const { tools, missing } = resolveShadowTools(shadow.tools, availableTools);
     const activeRun: ActiveRun = { shadow, epoch: runEpoch };
-    if (completionReview) activeRun.completionReview = completionReview;
+    if (completionReview) {
+      activeRun.completionReview = completionReview;
+      this.finalResponseRounds.set(
+        shadow.id,
+        (this.finalResponseRounds.get(shadow.id) ?? 0) + 1,
+      );
+    }
     this.active.set(runId, activeRun);
     this.record("run-start", {
       runId,
