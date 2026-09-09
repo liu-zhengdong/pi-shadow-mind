@@ -26,6 +26,7 @@ interface ReviewState {
   epoch: number;
   remaining: number;
   reports: ShadowReport[];
+  shadowIds: readonly string[];
 }
 
 export interface CompletionReviewHost<TJob extends CompletionReviewJob> {
@@ -33,8 +34,10 @@ export interface CompletionReviewHost<TJob extends CompletionReviewJob> {
   maxParallel(): number;
   activeCount(): number;
   activeShadowIds(): ReadonlySet<string>;
+  canLaunch?: () => boolean;
   launch(job: TJob, run: CompletionReviewRun): void;
   deliver(reports: readonly ShadowReport[]): void;
+  onReviewCompleted?: (shadowIds: readonly string[]) => void;
 }
 
 export class CompletionReview<TJob extends CompletionReviewJob> {
@@ -49,6 +52,7 @@ export class CompletionReview<TJob extends CompletionReviewJob> {
       maxParallel: () => this.host.maxParallel(),
       activeCount: () => this.host.activeCount(),
       activeShadowIds: () => this.host.activeShadowIds(),
+      canLaunch: () => (this.host.canLaunch ? this.host.canLaunch() : true),
       launch: ({ job, run }) => host.launch(job, run),
     });
   }
@@ -82,6 +86,7 @@ export class CompletionReview<TJob extends CompletionReviewJob> {
       epoch: request.epoch,
       remaining: jobs.length,
       reports: [],
+      shadowIds: jobs.map((job) => job.shadowId),
     };
     this.queue.enqueue(
       jobs.map((job) => {
@@ -108,7 +113,9 @@ export class CompletionReview<TJob extends CompletionReviewJob> {
     if (this.state.remaining > 0) return;
 
     const reports = this.state.reports;
+    const shadowIds = this.state.shadowIds;
     this.retire(requestId);
+    this.host.onReviewCompleted?.(shadowIds);
     if (reports.length > 0) this.host.deliver(reports);
   }
 

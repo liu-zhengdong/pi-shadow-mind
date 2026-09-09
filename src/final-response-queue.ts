@@ -12,6 +12,7 @@ export class FinalResponseQueue<T extends FinalResponseQueueItem> {
       maxParallel: () => number;
       activeCount: () => number;
       activeShadowIds: () => ReadonlySet<string>;
+      canLaunch?: () => boolean;
       launch: (item: T) => void;
     },
   ) {}
@@ -30,6 +31,7 @@ export class FinalResponseQueue<T extends FinalResponseQueueItem> {
   }
 
   private pump(): void {
+    if (this.options.canLaunch && !this.options.canLaunch()) return;
     while (
       this.options.activeCount() < this.options.maxParallel() &&
       this.pending.length > 0

@@ -56,6 +56,28 @@ describe("FinalResponseQueue", () => {
     queue.slotAvailable();
     expect(launched).toEqual(["b", "a"]);
   });
+
+  it("suppresses launching while canLaunch returns false", () => {
+    let allowed = false;
+    const launched: string[] = [];
+    const queue = new FinalResponseQueue<Item>({
+      currentEpoch: () => 1,
+      maxParallel: () => 2,
+      activeCount: () => 0,
+      activeShadowIds: () => new Set(),
+      canLaunch: () => allowed,
+      launch: (queued) => {
+        launched.push(queued.shadowId);
+      },
+    });
+
+    queue.enqueue([item("a")]);
+    expect(launched).toEqual([]);
+
+    allowed = true;
+    queue.slotAvailable();
+    expect(launched).toEqual(["a"]);
+  });
 });
 
 function item(shadowId: string): Item {

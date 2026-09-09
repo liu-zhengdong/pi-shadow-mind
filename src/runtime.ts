@@ -90,9 +90,18 @@ export class ShadowMindRuntime {
     activeCount: () => this.active.size,
     activeShadowIds: () =>
       new Set([...this.active.values()].map(({ shadow }) => shadow.id)),
+    canLaunch: () => !this.batcher.hasPending,
     launch: (pending, review) =>
       this.launchShadow({ ...pending, completionReview: review }),
     deliver: (reports) => void this.deliverReports(reports),
+    onReviewCompleted: (shadowIds) => {
+      for (const id of shadowIds) {
+        this.finalResponseRounds.set(
+          id,
+          (this.finalResponseRounds.get(id) ?? 0) + 1,
+        );
+      }
+    },
   });
   private readonly recentEvents: RuntimeEvent[] = [];
   private readonly recentRuns: Array<{
@@ -361,6 +370,10 @@ export class ShadowMindRuntime {
   }
 
   private async onFinalResponse(ctx: ExtensionContext): Promise<void> {
+    if (this.batcher.hasPending) {
+      await this.batcher.flush();
+      return;
+    }
     const request = this.completionReview.begin(this.epoch);
     const snapshot = await this.refresh(ctx);
     if (!this.completionReview.isCurrent(request)) {
@@ -436,13 +449,7 @@ export class ShadowMindRuntime {
     const runEpoch = options.epoch ?? this.epoch;
     const { tools, missing } = resolveShadowTools(shadow.tools, availableTools);
     const activeRun: ActiveRun = { shadow, epoch: runEpoch };
-    if (completionReview) {
-      activeRun.completionReview = completionReview;
-      this.finalResponseRounds.set(
-        shadow.id,
-        (this.finalResponseRounds.get(shadow.id) ?? 0) + 1,
-      );
-    }
+    if (completionReview) activeRun.completionReview = completionReview;
     this.active.set(runId, activeRun);
     this.record("run-start", {
       runId,
