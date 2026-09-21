@@ -219,6 +219,7 @@ function makeRequest(
       defaultShadowTimeoutSeconds: 60,
       headlessDrainTimeoutSeconds: 120,
       resultBatchWindowMs: 400,
+      excludedExtensions: [],
       defaultThinkingLevel: "low",
     },
     epoch: 1,

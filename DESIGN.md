@@ -47,6 +47,8 @@ Shadow 的 Markdown 定义持久存在，但运行实例不保留长期记忆。
 
 每个实例同时快照激活时 Main 的当前工作目录，并在整个临时 AgentSession 中保持不变。Shadow 的工具都以该目录为 `cwd`；Main 后续切换目录只影响新激活的 Shadow。
 
+临时 AgentSession 加载的扩展是 Main 的子集：去掉本插件自身，再去掉 `excluded_extensions` 列出的扩展。Shadow 需要 provider 扩展提供模型，因此不整体关闭扩展。排除项按扩展文件路径匹配，可用的标识是包名、包目录名、单文件扩展的文件名和绝对路径，都是精确匹配，不支持通配。
+
 ## 3. Shadow Mind 实体
 
 每个 Shadow Mind 使用一个 Markdown 文件描述。用户可以创建和调整它，主 Agent 也可以通过插件工具创建和调整它。
@@ -65,7 +67,7 @@ Shadow 定义统一从全局目录加载：
 
 该目录属于用户数据，不放入插件安装目录，也不随当前项目切换。插件级配置保存在 `config.json`；registry 只扫描目录顶层的 `.md` 文件，不读取 `config.json`，也不递归读取 `logs/`。
 
-`config.json` 保存默认 Shadow 模型、`default_thinking_level`、`heartbeat_probability`、`heartbeat_tools`、`max_parallel_shadows`、`default_shadow_timeout_seconds`、`headless_drain_timeout_seconds`、`result_batch_window_ms` 和可选的 `random_seed` 等全局调度配置。`default_shadow_model` 省略时，插件使用激活时的当前 Main 模型；用户也可以配置一个固定默认模型。`default_thinking_level` 的内置默认值为 `low`。
+`config.json` 保存默认 Shadow 模型、`default_thinking_level`、`heartbeat_probability`、`heartbeat_tools`、`max_parallel_shadows`、`default_shadow_timeout_seconds`、`headless_drain_timeout_seconds`、`result_batch_window_ms`、`excluded_extensions` 和可选的 `random_seed` 等全局调度配置。`excluded_extensions` 的内置默认值是 `["pi-experiencev2"]`，写成 `[]` 即加载 Main 的全部扩展。`default_shadow_model` 省略时，插件使用激活时的当前 Main 模型；用户也可以配置一个固定默认模型。`default_thinking_level` 的内置默认值为 `low`。
 
 每次 heartbeat 判断或 final-response 调度前，插件检查并重新加载发生变化的 `config.json`。纯文本轮次不会进入 heartbeat，但 Main 的最终文字可以触发 final-response 检查。新配置只影响后续调度和新建实例；已经运行的 Shadow 继续使用启动时取得的配置快照。
 

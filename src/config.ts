@@ -4,6 +4,13 @@ import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { ShadowConfig } from "./types.js";
 import { cleanStringArray, inRange, isFiniteNumber, isNonEmptyString, isThinkingLevel } from "./validation.js";
 
+/**
+ * Extensions that record or archive whole sessions turn every Shadow run into a
+ * separate user-facing record, so they are excluded by default. Set
+ * `excluded_extensions` to `[]` to load everything the main session loads.
+ */
+const DEFAULT_EXCLUDED_EXTENSIONS = ["pi-experiencev2"];
+
 export const DEFAULT_CONFIG: ShadowConfig = {
   heartbeatProbability: 1 / 3,
   heartbeatTools: [],
@@ -11,6 +18,7 @@ export const DEFAULT_CONFIG: ShadowConfig = {
   defaultShadowTimeoutSeconds: 300,
   headlessDrainTimeoutSeconds: 120,
   resultBatchWindowMs: 400,
+  excludedExtensions: DEFAULT_EXCLUDED_EXTENSIONS,
   defaultThinkingLevel: "low",
 };
 
@@ -25,6 +33,7 @@ export function parseConfig(input: unknown): ShadowConfig {
   const timeout = positiveNumber(value.default_shadow_timeout_seconds, DEFAULT_CONFIG.defaultShadowTimeoutSeconds, "default_shadow_timeout_seconds");
   const drainTimeout = positiveNumber(value.headless_drain_timeout_seconds, DEFAULT_CONFIG.headlessDrainTimeoutSeconds, "headless_drain_timeout_seconds");
   const windowMs = nonNegativeInteger(value.result_batch_window_ms, DEFAULT_CONFIG.resultBatchWindowMs, "result_batch_window_ms");
+  const excludedExtensions = cleanStringArray(value.excluded_extensions, DEFAULT_CONFIG.excludedExtensions, "excluded_extensions");
   const model = optionalNonEmptyString(value.default_shadow_model, "default_shadow_model");
   const randomSeed = optionalSeed(value.random_seed);
   const thinking = value.default_thinking_level ?? DEFAULT_CONFIG.defaultThinkingLevel;
@@ -38,6 +47,7 @@ export function parseConfig(input: unknown): ShadowConfig {
     defaultShadowTimeoutSeconds: timeout,
     headlessDrainTimeoutSeconds: drainTimeout,
     resultBatchWindowMs: windowMs,
+    excludedExtensions,
     defaultShadowModel: model,
     defaultThinkingLevel: thinking as ThinkingLevel,
     randomSeed,
@@ -52,6 +62,8 @@ export function serializeConfig(config: ShadowConfig): string {
     default_shadow_timeout_seconds: config.defaultShadowTimeoutSeconds,
     headless_drain_timeout_seconds: config.headlessDrainTimeoutSeconds,
     result_batch_window_ms: config.resultBatchWindowMs,
+    // Always written, including `[]`: omitting it would silently restore the default.
+    excluded_extensions: config.excludedExtensions,
     ...(config.defaultShadowModel ? { default_shadow_model: config.defaultShadowModel } : {}),
     default_thinking_level: config.defaultThinkingLevel,
     ...(config.randomSeed !== undefined ? { random_seed: config.randomSeed } : {}),

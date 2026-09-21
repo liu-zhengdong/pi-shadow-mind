@@ -33,6 +33,29 @@ describe("parseConfig", () => {
     expect(defaultEmpty).not.toContain("heartbeat_tools");
   });
 
+  it("excludes session-recording extensions by default", () => {
+    expect(DEFAULT_CONFIG.excludedExtensions).toEqual(["pi-experiencev2"]);
+    expect(parseConfig({}).excludedExtensions).toEqual(["pi-experiencev2"]);
+  });
+
+  it("lets an empty excluded_extensions survive a write/read round trip", () => {
+    const cleared = { ...DEFAULT_CONFIG, excludedExtensions: [] };
+    const serialized = serializeConfig(cleared);
+    expect(serialized).toContain('"excluded_extensions": []');
+    expect(parseConfig(JSON.parse(serialized)).excludedExtensions).toEqual([]);
+  });
+
+  it("rejects invalid excluded_extensions", () => {
+    expect(parseConfig({ excluded_extensions: ["a", "a", "b"] }).excludedExtensions).toEqual([
+      "a",
+      "b",
+    ]);
+    expect(() => parseConfig({ excluded_extensions: "pi-experiencev2" })).toThrow(
+      /excluded_extensions/,
+    );
+    expect(() => parseConfig({ excluded_extensions: [""] })).toThrow(/excluded_extensions/);
+  });
+
   it("rejects invalid probability", () => {
     expect(() => parseConfig({ heartbeat_probability: 2 })).toThrow(
       /heartbeat_probability/,

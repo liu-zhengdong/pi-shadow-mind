@@ -67,3 +67,9 @@
 - 发生：用户希望仅对特定主力模型（如 `gpt-6-astra`）关闭某 Shadow，而对其余模型保持启用。
 - 分析：此前仅支持全量 `*` 或显式枚举白名单，针对特定模型禁用必须穷举所有其他合法模型，配置维护成本高；应支持以 `!` 开头的排除规则，支持模型短名与 glob 通配，并在纯排除配置时默认全量模型候选。
 - 改变：`matchesModel` 区分正向与否定规则；命中任一排除规则立即过滤；纯排除列表默认继承 `*`；补充短名、通配、格式破坏与调度过滤回归。
+
+## 2026-09-21 · Shadow 会话不加载按会话记录的扩展
+
+- 发生：同时安装 Run 归档扩展 pi-experiencev2 时，用户归档的 1098 个 Run 里有 381 个（35%）来自 Shadow 会话，缺摘要率 21.0%，高于用户会话的 9.3%；摘要成功的 301 条也按 Main 的目标撰写，再因为 Shadow 只回 `NOT_RELEVANT` 判成任务未完成，在归档列表里与用户 Run 混排。Shadow 会话不走 CLI 的 `session_start` / `session_shutdown`，这类扩展的关闭路径也不触发，归档 `writers` 表残留 26 条记录。
+- 分析：Shadow 的结论本来就通过 `report_to_main` 进入 Main 会话记录，381 次运行只有 8 次产出报告，单独归档价值接近零。整体关闭扩展不可行，provider 扩展要提供模型。因此按名单排除，默认排除 `pi-experiencev2`，写 `[]` 恢复原状。匹配只能基于扩展文件路径：`DefaultResourceLoader` 先调用 `extensionsOverride`，再调用 `applyExtensionSourceInfo`，回调拿到的 `sourceInfo` 还是 `source: "local"` / `origin: "top-level"` 的占位值，`baseDir` 指向文件所在目录而非包根。包名改从文件向上最近的 `package.json` 读取，遇到 `node_modules` 或 home 目录即停，`index.js` 这类入口文件名不作为标识，避免一个通用词排除掉所有打包扩展。
+- 改变：新增 `excluded_extensions` 配置与 `src/extension-filter.ts`（`isSelfExtension` 一并迁入），`bootstrapSession` 的 `extensionsOverride` 同时应用两个判据。实测对照：`excluded_extensions: []` 时归档 2 条 Run 且残留 1 条 writer，默认值下归档 1 条、writer 0 条，同一次运行的 Shadow debug 日志与 usage 证明 Shadow 确实执行过。

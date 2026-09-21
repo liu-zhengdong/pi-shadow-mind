@@ -1,6 +1,5 @@
 import { mkdir } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
-import { basename, dirname, join, normalize, resolve } from "node:path";
+import { join } from "node:path";
 import { Type } from "typebox";
 import {
   DefaultResourceLoader,
@@ -44,8 +43,7 @@ export function resolveShadowTools(
 
 import { buildShadowRequest, buildShadowSystemPrompt } from "./protocol.js";
 import { serializeTrajectory } from "./trajectory.js";
-
-const SELF_PATH = normalize(resolve(fileURLToPath(import.meta.url)));
+import { createExtensionExcluder, isSelfExtension } from "./extension-filter.js";
 
 export interface ShadowRunRequest {
   shadow: ShadowDefinition;
@@ -196,6 +194,7 @@ export class ShadowRunner {
   ): Promise<{ session: ShadowSession; missingTools: string[]; thinkingLevel: string }> {
     const thinkingLevel = resolveRunThinkingLevel(model, request);
     const settingsManager = SettingsManager.create(request.cwd, request.agentDir);
+    const isExcluded = createExtensionExcluder(request.config.excludedExtensions);
     const resourceLoader = new DefaultResourceLoader({
       cwd: request.cwd,
       agentDir: request.agentDir,
@@ -207,9 +206,15 @@ export class ShadowRunner {
       appendSystemPrompt: [],
       agentsFilesOverride: () => ({ agentsFiles: [] }),
       skillsOverride: (base) => ({ skills: [], diagnostics: base.diagnostics }),
+      // Drop this plugin itself plus every extension the user excluded, so
+      // session-scoped extensions (archivers, recorders) never treat an internal
+      // Shadow run as one more user session.
       extensionsOverride: (base) => ({
         ...base,
-        extensions: base.extensions.filter((extension) => !isSelfExtension(extension.resolvedPath)),
+        extensions: base.extensions.filter(
+          (extension) =>
+            !isSelfExtension(extension.resolvedPath) && !isExcluded(extension.resolvedPath),
+        ),
       }),
     });
     await resourceLoader.reload();
@@ -351,11 +356,4 @@ function assertTrajectoryFits(model: Model<any>, messages: readonly unknown[]): 
   if (estimated > model.contextWindow) {
     throw new Error(`trajectory ~${estimated} tokens exceeds ${model.provider}/${model.id} context window (${model.contextWindow})`);
   }
-}
-
-function isSelfExtension(candidate: string): boolean {
-  const normalized = normalize(resolve(candidate));
-  if (normalized === SELF_PATH) return true;
-  const sourceDirectory = normalize(resolve(dirname(SELF_PATH)));
-  return dirname(normalized) === sourceDirectory && (basename(normalized) === "index.ts" || basename(normalized) === "index.js");
 }

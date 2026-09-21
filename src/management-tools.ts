@@ -189,6 +189,7 @@ function configWriteTool(
         Type.Number({ exclusiveMinimum: 0 }),
       ),
       result_batch_window_ms: Type.Optional(Type.Integer({ minimum: 0 })),
+      excluded_extensions: Type.Optional(Type.Array(Type.String())),
       default_shadow_model: Type.Optional(Type.String()),
       default_thinking_level: Type.Optional(THINKING),
       random_seed: Type.Optional(
@@ -212,6 +213,8 @@ function configWriteTool(
           current.headlessDrainTimeoutSeconds,
         result_batch_window_ms:
           raw.result_batch_window_ms ?? current.resultBatchWindowMs,
+        excluded_extensions:
+          raw.excluded_extensions ?? current.excludedExtensions,
         default_shadow_model:
           raw.default_shadow_model ?? current.defaultShadowModel,
         default_thinking_level:

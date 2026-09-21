@@ -9,6 +9,8 @@ export interface ShadowConfig {
   defaultShadowTimeoutSeconds: number;
   headlessDrainTimeoutSeconds: number;
   resultBatchWindowMs: number;
+  /** Extensions a Shadow session must not load, by name or path. */
+  excludedExtensions: string[];
   defaultShadowModel?: string;
   defaultThinkingLevel: ThinkingLevel;
   randomSeed?: number;
